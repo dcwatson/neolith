@@ -1,10 +1,16 @@
 import pytest
 
-from neolith.protocol.base import Binary, Int, Packet, PacketType, ProtocolError, String
+from neolith.protocol.base import Binary, Container, Int, List, Packet, PacketType, ProtocolError, String
+
+
+class SomeType (Container):
+    name = String()
+    flags = Int()
 
 
 class SomeResponse (Packet):
     reply = String()
+    objects = List(SomeType)
 
 
 class SomeRequest (Packet):
@@ -12,8 +18,7 @@ class SomeRequest (Packet):
     sequence = Int(required=True)
     nickname = String()
     icon = Binary()
-
-    response_type = SomeResponse
+    ints = List(int)
 
 
 def test_round_trip():

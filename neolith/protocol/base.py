@@ -1,17 +1,5 @@
 import umsgpack
 
-import enum
-
-
-class Protocol (enum.IntEnum):
-    ClientInfo = 1
-    ServerInfo = 2
-    LoginRequest = 3
-    LoginResponse = 4
-    UserJoined = 100
-    UserLeft = 101
-    Chat = 200
-
 
 class ProtocolError (Exception):
     pass
@@ -67,6 +55,9 @@ class PacketType (DataType):
     def __set_name__(self, owner, name):
         if name != 'kind':
             raise TypeError('PacketTypes must be named "kind"')
+        if self.default in PacketType.registered_types:
+            other = PacketType.registered_types[self.default]
+            raise TypeError('PacketType({}) is already registered to {}'.format(self.default, other.__name__))
         self.name = name
         PacketType.registered_types[self.default] = owner
 
@@ -86,17 +77,37 @@ class String (DataType):
     python_type = str
 
 
+class Boolean (DataType):
+    python_type = bool
+
+
 class Binary (DataType):
     python_type = bytes
+
+
+class Object (DataType):
+
+    def __init__(self, item_type, **kwargs):
+        # TODO: add a way to exclude fields from the Container
+        if not issubclass(item_type, Container):
+            raise TypeError('Objects may only be Container subclasses'.format(self.__class__.__name__))
+        self.python_type = item_type
+        super().__init__(**kwargs)
+
+    def prepare(self, value):
+        return value.prepare() if value is not None else None
+
+    def unpack(self, value):
+        return self.python_type.unpack(value)
 
 
 class List (DataType):
     python_type = list
 
     def __init__(self, item_type, **kwargs):
-        if not issubclass(item_type, Container):
-            raise TypeError('Items in a {} must be Container subclasses'.format(self.__class__.__name__))
         self.item_type = item_type
+        if 'default' not in kwargs:
+            kwargs['default'] = list
         super().__init__(**kwargs)
 
     def check_value(self, instance, value):
@@ -108,10 +119,16 @@ class List (DataType):
         return super().check_value(instance, value)
 
     def prepare(self, value):
-        return [item.prepare() for item in value if isinstance(item, self.item_type)]
+        if issubclass(self.item_type, Container):
+            return [item.prepare() for item in value if isinstance(item, self.item_type)]
+        else:
+            return [item for item in value if isinstance(item, self.item_type)]
 
     def unpack(self, value):
-        return [self.item_type.unpack(item) for item in value]
+        if issubclass(self.item_type, Container):
+            return [self.item_type.unpack(item) for item in value]
+        else:
+            return value
 
 
 class Container:
@@ -156,40 +173,38 @@ class Packet (Container):
     sequence = Int()
     flags = Int()
 
-    response_type = None
-
-    def response(self, **kwargs):
-        response_type = self.response_type or Packet
-        return response_type(sequence=self.sequence, **kwargs)
+    def response(self, cls=None, **kwargs):
+        response_class = cls or Response
+        return response_class(sequence=self.sequence, **kwargs)
 
 
-# move this stuff...
-
-class User (Container):
-    uid = Int()
-    nickname = String()
-    icon = Binary()
-
-    def __str__(self):
-        return '{}:{}'.format(self.uid, self.nickname)
-
-
-class ClientPacket (Packet):
+class Request (Packet):
+    """ A packet initiated by the client that expects a response. """
     pass
 
 
-class ServerPacket (Packet):
+class Response (Packet):
+    """ A packet sent by the server in response to a request. """
     pass
 
 
-class LoginResponse (ServerPacket):
-    kind = PacketType(Protocol.LoginResponse)
-    users = List(User)
+class Action (Packet):
+    """ A packet sent by the client that does not expect a response. """
+    pass
 
 
-class LoginRequest (ClientPacket):
-    kind = PacketType(Protocol.LoginRequest)
-    username = String()
-    password = String()
+class Notification (Packet):
+    """ A packet sent by the server not in response to a request. """
+    pass
 
-    response_type = LoginResponse
+
+class ClientInfo (Request):
+    kind = PacketType(1)
+    name = String()
+    protocol = Int(default=1)
+
+
+class ServerInfo (Packet):
+    kind = PacketType(2)
+    name = String()
+    protocol = Int(default=1)
