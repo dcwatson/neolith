@@ -1,5 +1,8 @@
 import umsgpack
 
+import asyncio
+import struct
+
 
 class ProtocolError (Exception):
     pass
@@ -62,8 +65,7 @@ class PacketType (DataType):
         PacketType.registered_types[self.default] = owner
 
     @classmethod
-    def instantiate(cls, buf):
-        data = umsgpack.unpackb(buf)
+    def instantiate(cls, data):
         if 'kind' not in data:
             raise ProtocolError('Unable to instantiate packet, missing "kind" field')
         return PacketType.registered_types.get(data['kind'], Packet).unpack(data)
@@ -148,9 +150,6 @@ class Container:
                     data[name] = field.prepare(value)
         return data
 
-    def serialize(self) -> bytes:
-        return umsgpack.packb(self.prepare())
-
     @classmethod
     def unpack(cls, data: dict):
         instance = cls()
@@ -163,15 +162,26 @@ class Container:
                     seen.add(name)
         return instance
 
-    @classmethod
-    def deserialize(cls, buf: bytes):
-        return cls.unpack(umsgpack.unpackb(buf))
-
 
 class Packet (Container):
     kind = Int()
     sequence = Int()
     flags = Int()
+
+    def serialize(self) -> bytes:
+        buf = umsgpack.packb(self.prepare())
+        return struct.pack('!L', len(buf)) + buf
+
+    @classmethod
+    def deserialize(cls, buf: bytes):
+        if len(buf) < 4:
+            return None, 0
+        size = struct.unpack('!L', buf[:4])[0]
+        if len(buf) < (4 + size):
+            return None, 0
+        data = umsgpack.unpackb(buf[4:4 + size])
+        print(data, size, len(buf))
+        return PacketType.instantiate(data), 4 + size
 
     def response(self, cls=None, **kwargs):
         response_class = cls or Response
@@ -208,3 +218,52 @@ class ServerInfo (Packet):
     kind = PacketType(2)
     name = String()
     protocol = Int(default=1)
+
+
+# asyncio Protocol implementation
+
+class NeolithDelegate:
+
+    def notify_connect(self, protocol):
+        pass
+
+    def notify_disconnect(self, protocol):
+        pass
+
+    def notify_packet(self, protocol, packet):
+        pass
+
+
+class NeolithProtocol (asyncio.Protocol):
+
+    def __init__(self, delegate: NeolithDelegate):
+        self.delegate = delegate
+        self.buffered = b''
+        self.transport = None
+        self.address = None
+        self.port = None
+
+    def connection_made(self, transport: asyncio.Transport):
+        self.transport = transport
+        self.address, self.port = self.transport.get_extra_info('peername')
+        self.delegate.notify_connect(self)
+
+    def connection_lost(self, exc):
+        self.delegate.notify_disconnect(self, exc)
+
+    def data_received(self, data: bytes):
+        self.buffered += data
+        self.parse_buffer()
+
+    def parse_buffer(self):
+        done = len(self.buffered) < 4
+        while not done:
+            packet, read = Packet.deserialize(self.buffered)
+            if packet:
+                self.delegate.notify_packet(self, packet)
+                self.buffered = self.buffered[read:]
+            else:
+                done = True
+
+    def write(self, packet: Packet):
+        self.transport.write(packet.serialize())
