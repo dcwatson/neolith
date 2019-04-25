@@ -9,6 +9,7 @@ class SomeType (Container):
 
 
 class SomeResponse (Packet):
+    kind = PacketType(17)
     reply = String()
     objects = List(SomeType)
 
@@ -23,7 +24,8 @@ class SomeRequest (Packet):
 
 def test_round_trip():
     p1 = SomeRequest(sequence=1, nickname="unnamed")
-    p2 = SomeRequest.deserialize(p1.serialize())
+    p2, size = Packet.deserialize(p1.serialize())
+    assert p2.__class__ is SomeRequest
     assert p1.kind == p2.kind
     assert p1.sequence == p2.sequence
     assert p1.nickname == p2.nickname
@@ -51,3 +53,18 @@ def test_required():
     p1.sequence = None
     with pytest.raises(ProtocolError):
         p1.serialize()
+
+
+def test_lists():
+    p1 = SomeRequest(sequence=2, ints=[1, 2, 3, 5, 8])
+    p2, size = Packet.deserialize(p1.serialize())
+    assert p1.ints == p2.ints
+    p3 = SomeResponse(
+        reply="hello there",
+        objects=[
+            SomeType(name="foo", flags=1),
+            SomeType(name="bar", flags=2),
+        ]
+    )
+    p4, size = Packet.deserialize(p3.serialize())
+    assert ["foo", "bar"] == [t.name for t in p4.objects]

@@ -1,4 +1,4 @@
-from .base import NeolithClient
+from .curses import CursesClient
 
 import argparse
 import asyncio
@@ -18,17 +18,17 @@ def main():
     parser.add_argument('host', nargs='?', default='127.0.0.1')
     args = parser.parse_args()
 
-    print(args)
-
     loop = asyncio.get_event_loop()
-    client = NeolithClient(loop=loop)
-    client.connect()
+    client = CursesClient(loop=loop)
+    client.start()
+    client.connect()  # move this to /connect
 
     try:
         loop.run_forever()
     except KeyboardInterrupt:
         pass
     finally:
+        client.stop()
         loop.close()
 
     return 0

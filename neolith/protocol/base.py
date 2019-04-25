@@ -1,6 +1,7 @@
 import umsgpack
 
 import asyncio
+import re
 import struct
 
 
@@ -180,7 +181,6 @@ class Packet (Container):
         if len(buf) < (4 + size):
             return None, 0
         data = umsgpack.unpackb(buf[4:4 + size])
-        print(data, size, len(buf))
         return PacketType.instantiate(data), 4 + size
 
     def response(self, cls=None, **kwargs):
@@ -188,33 +188,57 @@ class Packet (Container):
         return response_class(sequence=self.sequence, **kwargs)
 
 
-class Request (Packet):
+def snake(name):
+    s1 = re.sub("(.)([A-Z][a-z]+)", r"\1_\2", name)
+    return re.sub("([a-z0-9])([A-Z])", r"\1_\2", s1).lower()
+
+
+class ClientPacket (Packet):
+
+    def handle(self, server, user):
+        pass
+
+
+class ServerPacket (Packet):
+
+    def handle(self, client):
+        methods = (
+            'handle_{}'.format(self.__class__.__name__),
+            'handle_{}'.format(snake(self.__class__.__name__)),
+        )
+        for name in methods:
+            handler = getattr(client, name, None)
+            if handler and callable(handler):
+                return handler(self)
+
+
+class Request (ClientPacket):
     """ A packet initiated by the client that expects a response. """
     pass
 
 
-class Response (Packet):
+class Response (ServerPacket):
     """ A packet sent by the server in response to a request. """
     pass
 
 
-class Action (Packet):
+class Action (ClientPacket):
     """ A packet sent by the client that does not expect a response. """
     pass
 
 
-class Notification (Packet):
+class Notification (ServerPacket):
     """ A packet sent by the server not in response to a request. """
     pass
 
 
-class ClientInfo (Request):
+class ClientInfo (ClientPacket):
     kind = PacketType(1)
     name = String()
     protocol = Int(default=1)
 
 
-class ServerInfo (Packet):
+class ServerInfo (ServerPacket):
     kind = PacketType(2)
     name = String()
     protocol = Int(default=1)
@@ -227,7 +251,7 @@ class NeolithDelegate:
     def notify_connect(self, protocol):
         pass
 
-    def notify_disconnect(self, protocol):
+    def notify_disconnect(self, protocol, exc):
         pass
 
     def notify_packet(self, protocol, packet):

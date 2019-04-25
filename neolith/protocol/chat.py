@@ -21,6 +21,11 @@ class PostChat (Action):
 class GetChannels (Request):
     kind = PacketType(202)
 
+    def handle(self, server, user):
+        server.send(ChannelList(
+            channels=[]
+        ), user)
+
 
 class CreateChannel (Request):
     kind = PacketType(203)
@@ -71,9 +76,10 @@ class ChannelList (Response):
     channels = List(Channel)
 
 
-class Invitation (Notification):
+class ChannelInvitation (Notification):
     kind = PacketType(221)
-    channel = String()
+    channel = Object(Channel)
+    user = Object(User)
 
 
 class ChannelJoin (Notification):

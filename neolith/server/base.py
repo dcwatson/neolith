@@ -1,4 +1,4 @@
-from neolith.protocol import NeolithDelegate, NeolithProtocol, ServerInfo
+from neolith.protocol import ClientPacket, NeolithDelegate, NeolithProtocol, ServerInfo
 
 
 class NeolithServer (NeolithDelegate):
@@ -12,8 +12,10 @@ class NeolithServer (NeolithDelegate):
         )
 
     def notify_connect(self, protocol):
-        print('client connected')
+        print('client connected from', protocol.address, protocol.port)
         protocol.write(ServerInfo(name='neolith-server'))
 
     def notify_packet(self, protocol, packet):
         print(protocol, packet)
+        assert isinstance(packet, ClientPacket)
+        packet.handle(self, None)
