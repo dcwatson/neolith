@@ -1,97 +1,115 @@
-from .base import Action, Boolean, Container, Int, List, Notification, Object, PacketType, Request, Response, String
-from .user import User
-
-
-class Channel (Container):
-    name = String()
-    topic = String()
-    flags = Int()
-    num_users = Int()
+from .base import Action, Binary, Boolean, Container, Int, List, Notification, Object, Request, Response, String, packet
+from .types import Channel, EncryptedMessage, Session
 
 
 # Client actions/requests
 
+@packet('channel.post')
 class PostChat (Action):
-    kind = PacketType(201)
-    channel = String()
+    channel = String(required=True)
     chat = String()
-    emote = Boolean()
+    encrypted = List(EncryptedMessage)
+    emote = Boolean(default=False)
+
+    async def handle(self, server, session):
+        channel = server.channels[self.channel]
+        if channel.encrypted:
+            messages = {e.session_id: e.data for e in self.encrypted}
+            for s in channel.sessions:
+                if s.pubkey and s.ident in messages:
+                    s.send(ChatPosted(channel=self.channel,
+                           encrypted=messages[s.ident], emote=self.emote, user=session))
+        else:
+            channel.send(ChatPosted(channel=self.channel, chat=self.chat, emote=self.emote, user=session))
 
 
+@packet('channel.list')
 class GetChannels (Request):
-    kind = PacketType(202)
-
-    def handle(self, server, user):
-        server.send(ChannelList(
-            channels=[]
-        ), user)
+    async def handle(self, server, session):
+        channels = list(server.channels.channels.values())
+        return ChannelList(channels=channels)
 
 
-class CreateChannel (Request):
-    kind = PacketType(203)
+@packet('channel.users')
+class GetChannelUsers (Request):
     channel = String()
-    flags = Int()
+
+    async def handle(self, server, session):
+        channel = server.channels[self.channel]
+        return ChannelUsers(channel=self.channel, users=list(channel.sessions))
 
 
+@packet('channel.create')
+class CreateChannel (Request):
+    channel = String()
+
+
+@packet('channel.invite')
 class InviteUsers (Request):
-    kind = PacketType(204)
+    channel = String()
     uids = List(int)
 
 
+@packet('channel.decline')
 class DeclineInvitation (Request):
-    kind = PacketType(205)
     channel = String()
 
 
+@packet('channel.join')
 class JoinChannel (Request):
-    kind = PacketType(206)
     channel = String()
 
 
+@packet('channel.leave')
 class LeaveChannel (Request):
-    kind = PacketType(207)
     channel = String()
 
 
+@packet('channel.modify')
 class ModifyChannel (Request):
-    kind = PacketType(208)
     channel = String()
     topic = String()
-    flags = Int()
 
 
 # Server responses/notifications
 
 
+@packet('channel.posted')
 class ChatPosted (Notification):
-    kind = PacketType(200)
     channel = String()
     chat = String()
+    encrypted = Binary()
     emote = Boolean()
-    user = Object(User)
+    user = Object(Session)
 
 
+@packet('channel.listing')
 class ChannelList (Response):
-    kind = PacketType(220)
     channels = List(Channel)
 
 
+@packet('channel.userlist')
+class ChannelUsers (Response):
+    channel = String()
+    users = List(Session)
+
+
+@packet('channel.invited')
 class ChannelInvitation (Notification):
-    kind = PacketType(221)
     channel = Object(Channel)
-    user = Object(User)
+    user = Object(Session)
 
 
+@packet('channel.joined')
 class ChannelJoin (Notification):
-    kind = PacketType(222)
     channel = String()
 
 
+@packet('channel.left')
 class ChannelLeave (Notification):
-    kind = PacketType(223)
     channel = String()
 
 
+@packet('channel.modified')
 class ChannelModified (Notification):
-    kind = PacketType(224)
     channel = String()

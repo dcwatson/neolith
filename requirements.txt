@@ -1,2 +1,4 @@
-blessings
-u-msgpack-python
+cryptography
+requests
+starlette
+uvicorn

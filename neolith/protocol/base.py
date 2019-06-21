@@ -1,8 +1,11 @@
-import umsgpack
-
 import asyncio
+import base64
+import json
 import re
 import struct
+
+
+registered_packets = {}
 
 
 class ProtocolError (Exception):
@@ -49,27 +52,16 @@ class DataType:
     def unpack(self, value):
         return value
 
-
-class PacketType (DataType):
-    registered_types = {}
-
-    def __init__(self, kind):
-        super().__init__(default=kind, required=True, readonly=True)
-
-    def __set_name__(self, owner, name):
-        if name != 'kind':
-            raise TypeError('PacketTypes must be named "kind"')
-        if self.default in PacketType.registered_types:
-            other = PacketType.registered_types[self.default]
-            raise TypeError('PacketType({}) is already registered to {}'.format(self.default, other.__name__))
-        self.name = name
-        PacketType.registered_types[self.default] = owner
-
-    @classmethod
-    def instantiate(cls, data):
-        if 'kind' not in data:
-            raise ProtocolError('Unable to instantiate packet, missing "kind" field')
-        return PacketType.registered_types.get(data['kind'], Packet).unpack(data)
+    def describe(self):
+        return {
+            self.name: {
+                'type': self.python_type.__name__,
+                'doc': self.doc,
+                'default': self.default,
+                'required': self.required,
+                'readonly': self.readonly,
+            }
+        }
 
 
 class Int (DataType):
@@ -86,6 +78,12 @@ class Boolean (DataType):
 
 class Binary (DataType):
     python_type = bytes
+
+    def prepare(self, value):
+        return base64.b64encode(value).decode('ascii') if value is not None else None
+
+    def unpack(self, value):
+        return base64.b64decode(value) if value is not None else None
 
 
 class Object (DataType):
@@ -122,16 +120,21 @@ class List (DataType):
         return super().check_value(instance, value)
 
     def prepare(self, value):
-        if issubclass(self.item_type, Container):
-            return [item.prepare() for item in value if isinstance(item, self.item_type)]
-        else:
-            return [item for item in value if isinstance(item, self.item_type)]
+        prepared = []
+        if value is None:
+            return prepared
+        for item in value:
+            if isinstance(item, self.item_type):
+                prepared.append(item.prepare() if isinstance(item, Container) else item)
+        return prepared
 
     def unpack(self, value):
+        if value is None:
+            return []
         if issubclass(self.item_type, Container):
             return [self.item_type.unpack(item) for item in value]
         else:
-            return value
+            return [self.item_type(item) for item in value]
 
 
 class Container:
@@ -163,29 +166,62 @@ class Container:
                     seen.add(name)
         return instance
 
+    @classmethod
+    def describe(cls):
+        description = {}
+        for klass in cls.mro():
+            for name, field in vars(klass).items():
+                if isinstance(field, DataType):
+                    description.update(field.describe())
+        return description
+
 
 class Packet (Container):
-    kind = Int()
+    ident = None
+
     sequence = Int()
-    flags = Int()
 
     def serialize(self) -> bytes:
-        buf = umsgpack.packb(self.prepare())
-        return struct.pack('!L', len(buf)) + buf
+        return json.dumps({
+            self.ident: self.prepare()
+        }).encode('utf-8')
+
+    @classmethod
+    def find(cls, ident: str):
+        global registered_packets
+        return registered_packets.get(ident)
 
     @classmethod
     def deserialize(cls, buf: bytes):
-        if len(buf) < 4:
-            return None, 0
-        size = struct.unpack('!L', buf[:4])[0]
-        if len(buf) < (4 + size):
-            return None, 0
-        data = umsgpack.unpackb(buf[4:4 + size])
-        return PacketType.instantiate(data), 4 + size
+        global registered_packets
+        data = json.loads(buf.decode('utf-8'))
+        if isinstance(data, dict):
+            data = [data]
+        if isinstance(data, (list, tuple)):
+            for packet_data in data:
+                for ident, fields in packet_data.items():
+                    if ident in registered_packets:
+                        yield registered_packets[ident].unpack(fields)
 
     def response(self, cls=None, **kwargs):
         response_class = cls or Response
         return response_class(sequence=self.sequence, **kwargs)
+
+
+def packet(ident, requires_auth=True):
+    global registered_packets
+
+    def _decorator(packet_class):
+        assert issubclass(packet_class, Packet)
+        if ident in registered_packets:
+            # TODO: make this a log info/warning to allow customizing packets
+            raise TypeError('Packet {} is already registered as {}'.format(ident, registered_packets[ident].__name__))
+        packet_class.ident = ident
+        if issubclass(packet_class, ClientPacket):
+            packet_class.requires_auth = requires_auth
+        registered_packets[ident] = packet_class
+        return packet_class
+    return _decorator
 
 
 def snake(name):
@@ -194,8 +230,9 @@ def snake(name):
 
 
 class ClientPacket (Packet):
+    requires_auth = True
 
-    def handle(self, server, user):
+    async def handle(self, server, session):
         pass
 
 
@@ -217,77 +254,16 @@ class Request (ClientPacket):
     pass
 
 
-class Response (ServerPacket):
-    """ A packet sent by the server in response to a request. """
+class Action (ClientPacket):
+    """ A packet sent by the client that does not expect a response. """
     pass
 
 
-class Action (ClientPacket):
-    """ A packet sent by the client that does not expect a response. """
+class Response (ServerPacket):
+    """ A packet sent by the server in response to a request. """
     pass
 
 
 class Notification (ServerPacket):
     """ A packet sent by the server not in response to a request. """
     pass
-
-
-class ClientInfo (ClientPacket):
-    kind = PacketType(1)
-    name = String()
-    protocol = Int(default=1)
-
-
-class ServerInfo (ServerPacket):
-    kind = PacketType(2)
-    name = String()
-    protocol = Int(default=1)
-
-
-# asyncio Protocol implementation
-
-class NeolithDelegate:
-
-    def notify_connect(self, protocol):
-        pass
-
-    def notify_disconnect(self, protocol, exc):
-        pass
-
-    def notify_packet(self, protocol, packet):
-        pass
-
-
-class NeolithProtocol (asyncio.Protocol):
-
-    def __init__(self, delegate: NeolithDelegate):
-        self.delegate = delegate
-        self.buffered = b''
-        self.transport = None
-        self.address = None
-        self.port = None
-
-    def connection_made(self, transport: asyncio.Transport):
-        self.transport = transport
-        self.address, self.port = self.transport.get_extra_info('peername')
-        self.delegate.notify_connect(self)
-
-    def connection_lost(self, exc):
-        self.delegate.notify_disconnect(self, exc)
-
-    def data_received(self, data: bytes):
-        self.buffered += data
-        self.parse_buffer()
-
-    def parse_buffer(self):
-        done = len(self.buffered) < 4
-        while not done:
-            packet, read = Packet.deserialize(self.buffered)
-            if packet:
-                self.delegate.notify_packet(self, packet)
-                self.buffered = self.buffered[read:]
-            else:
-                done = True
-
-    def write(self, packet: Packet):
-        self.transport.write(packet.serialize())
