@@ -10,19 +10,19 @@ class GetUserList (Request):
 
 @packet('user.listing')
 class UserList (Response):
-    users = List(Session)
+    users = List(Session, doc='A list of all users on the server.')
 
 
 @packet('user.joined')
 class UserJoined (Notification):
-    user = Object(Session)
+    user = Object(Session, doc='The user who joined the server.')
 
 
 @packet('user.left')
 class UserLeft (Notification):
-    user = Object(Session)  # Maybe just uid/nickname?
+    user = Object(Session, doc='The user who left the server.')
 
 
 @packet('user.modified')
 class UserModified (Notification):
-    user = Object(Session)
+    user = Object(Session, doc='The user who was modified.')

@@ -3,9 +3,9 @@ from .base import Action, Binary, Int, Request, Response, String, packet
 
 @packet('login', requires_auth=False)
 class LoginRequest (Request):
-    username = String(default='guest')
-    password = String()
-    nickname = String(required=True)
+    username = String(doc='The username to log in with.', default='guest')
+    password = String(doc='The password for the associated username.')
+    nickname = String(required=True, doc='Nicknames must be unique on the server.')
     pubkey = String(doc='Public key in OpenSSH encoding/format.')
 
     async def handle(self, server, session):
@@ -18,8 +18,8 @@ class LoginRequest (Request):
 
 @packet('login.response')
 class LoginResponse (Response):
-    session_id = String()
-    token = String()
+    session_id = String(doc='Public session ID used to identify users on the server.')
+    token = String(doc='Private authentication token for your session, for use with the web APIs.')
 
 
 @packet('logout', requires_auth=False)

@@ -53,11 +53,14 @@ class DataType:
         return value
 
     def describe(self):
+        default = self.default
+        if callable(default):
+            default = '{}()'.format(self.default.__name__)
         return {
             self.name: {
                 'type': self.python_type.__name__,
                 'doc': self.doc,
-                'default': self.default,
+                'default': default,
                 'required': self.required,
                 'readonly': self.readonly,
             }
@@ -136,6 +139,11 @@ class List (DataType):
         else:
             return [self.item_type(item) for item in value]
 
+    def describe(self):
+        description = super().describe()
+        description[self.name]['item_type'] = self.item_type.__name__
+        return description
+
 
 class Container:
 
@@ -179,7 +187,7 @@ class Container:
 class Packet (Container):
     ident = None
 
-    sequence = Int()
+    # sequence = Int()
 
     def to_dict(self) -> dict:
         return {self.ident: self.prepare()}
@@ -203,10 +211,6 @@ class Packet (Container):
                 for ident, fields in packet_data.items():
                     if ident in registered_packets:
                         yield registered_packets[ident].unpack(fields)
-
-    def response(self, cls=None, **kwargs):
-        response_class = cls or Response
-        return response_class(sequence=self.sequence, **kwargs)
 
 
 def packet(ident, requires_auth=True):

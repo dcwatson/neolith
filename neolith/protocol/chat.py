@@ -6,10 +6,10 @@ from .types import Channel, EncryptedMessage, Session
 
 @packet('channel.post')
 class PostChat (Action):
-    channel = String(required=True)
-    chat = String()
-    encrypted = List(EncryptedMessage)
-    emote = Boolean(default=False)
+    channel = String(doc='The channel name to post to.', required=True)
+    chat = String(doc='The chat to post, if the channel is not encrypted.')
+    encrypted = List(EncryptedMessage, doc='A list of encrypted messages, one for each user in the chat, encrypted for that user.')
+    emote = Boolean(default=False, doc='Whether the chat is an emote (action) or not.')
 
     async def handle(self, server, session):
         channel = server.channels[self.channel]
@@ -32,7 +32,7 @@ class GetChannels (Request):
 
 @packet('channel.users')
 class GetChannelUsers (Request):
-    channel = String()
+    channel = String(doc='The channel name to get a list of users for.', required=True)
 
     async def handle(self, server, session):
         channel = server.channels[self.channel]
@@ -41,34 +41,35 @@ class GetChannelUsers (Request):
 
 @packet('channel.create')
 class CreateChannel (Request):
-    channel = String()
+    channel = String(doc='The name of the channel to create.', required=True)
 
 
 @packet('channel.invite')
 class InviteUsers (Request):
-    channel = String()
-    uids = List(int)
+    channel = String(doc='The channel name to invite the specified users to.')
+    uids = List(str, doc='The list of user session IDs to invite.')
+    message = String(doc='A message to accompany the invitation.')
 
 
 @packet('channel.decline')
 class DeclineInvitation (Request):
-    channel = String()
+    channel = String(doc='The channel name you are declining the invitation for.', required=True)
 
 
 @packet('channel.join')
 class JoinChannel (Request):
-    channel = String()
+    channel = String(doc='The channel name you wish to join.', required=True)
 
 
 @packet('channel.leave')
 class LeaveChannel (Request):
-    channel = String()
+    channel = String(doc='The channel name you wish to leave.', required=True)
 
 
 @packet('channel.modify')
 class ModifyChannel (Request):
-    channel = String()
-    topic = String()
+    channel = String(doc='The channel name to modify.', required=True)
+    topic = String(doc='The topic to set for the channel.')
 
 
 # Server responses/notifications
@@ -76,40 +77,43 @@ class ModifyChannel (Request):
 
 @packet('channel.posted')
 class ChatPosted (Notification):
-    channel = String()
-    chat = String()
-    encrypted = Binary()
-    emote = Boolean()
-    user = Object(Session)
+    channel = String(doc='The channel name this chat was posted to.', required=True)
+    chat = String(doc='The posted chat, if the channel is not encrypted.')
+    encrypted = Binary(doc='The chat, encrypted for your session, if the channel is encrypted.')
+    emote = Boolean(doc='Whether the posted chat is an emote (action) or not.')
+    user = Object(Session, doc='The user who posted the chat.')
 
 
 @packet('channel.listing')
 class ChannelList (Response):
-    channels = List(Channel)
+    channels = List(Channel, doc='A list of all channels visible to you.')
 
 
 @packet('channel.userlist')
 class ChannelUsers (Response):
-    channel = String()
-    users = List(Session)
+    channel = String(doc='The channel name that the associated users are for.', required=True)
+    users = List(Session, doc='A list of users in the channel.')
 
 
 @packet('channel.invited')
 class ChannelInvitation (Notification):
-    channel = Object(Channel)
-    user = Object(Session)
+    channel = Object(Channel, doc='The channel you are being invited to.', required=True)
+    user = Object(Session, doc='The user inviting you to the channel.', required=True)
+    message = String(doc='The invitation message.')
 
 
 @packet('channel.joined')
 class ChannelJoin (Notification):
-    channel = String()
+    channel = String(doc='The channel name that the user joined.', required=True)
+    user = Object(Session, doc='The user who joined the channel.', required=True)
 
 
 @packet('channel.left')
 class ChannelLeave (Notification):
-    channel = String()
+    channel = String(doc='The channel name that the user left.', required=True)
+    user = Object(Session, doc='The user who left the channel.', required=True)
 
 
 @packet('channel.modified')
 class ChannelModified (Notification):
-    channel = String()
+    channel = Object(Channel, doc='The channel that was modified.', required=True)

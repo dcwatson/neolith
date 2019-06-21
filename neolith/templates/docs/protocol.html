@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+
+        <title>Neolith Protocol</title>
+
+        <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+        <style>
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="row">
+                <div class="col-sm-12">
+                    <h1>Data Types</h1>
+                    <table class="table table-bordered table-sm">
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th>Type</th>
+                                <th>Default</th>
+                                <th>Flags</th>
+                                <th>Docs</th>
+                            </tr>
+                        </thead>
+                        {% for type in data_types %}
+                            {% set fields = type.describe() %}
+                            <tbody>
+                                <tr>
+                                    <th class="table-info" colspan="5">{{ type.__name__ }}</th>
+                                </tr>
+                                {% for field, info in fields.items() %}
+                                    <tr>
+                                        <td>{{ field }}</td>
+                                        <td>{{ info.type }}{% if info.item_type %}[{{ info.item_type }}]{% endif %}</td>
+                                        <td>{{ info.default|default('', True) }}</td>
+                                        <td>
+                                            {% if info.required %}<span class="badge badge-info">Required</span>{% endif %}
+                                            {% if info.readonly %}<span class="badge badge-info">Readonly</span>{% endif %}
+                                        </td>
+                                        <td>{{ info.doc }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        {% endfor %}
+                    </table>
+
+                    <h1>Packets</h1>
+                    <table class="table table-bordered table-sm">
+                        <thead>
+                            <tr>
+                                <th>Field</th>
+                                <th>Type</th>
+                                <th>Default</th>
+                                <th>Flags</th>
+                                <th>Docs</th>
+                            </tr>
+                        </thead>
+                        {% for ident, packet in registered_packets.items() %}
+                            {% set fields = packet.describe() %}
+                            <tbody>
+                                <tr>
+                                    <th class="table-info" colspan="5">{{ ident }} <span class="badge badge-dark">{{ packet.__bases__[0].__name__ }}</span></th>
+                                </tr>
+                                {% for field, info in fields.items() %}
+                                    <tr>
+                                        <td>{{ field }}</td>
+                                        <td>{% if info.item_type %}[{{ info.item_type }}]{% else %}{{ info.type }}{% endif %}</td>
+                                        <td>{{ info.default|default('', True) }}</td>
+                                        <td>
+                                            {% if info.required %}<span class="badge badge-info">Required</span>{% endif %}
+                                            {% if info.readonly %}<span class="badge badge-info">Readonly</span>{% endif %}
+                                        </td>
+                                        <td>{{ info.doc }}</td>
+                                    </tr>
+                                {% endfor %}
+                            </tbody>
+                        {% endfor %}
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://code.jquery.com/jquery-3.3.1.slim.min.js" integrity="sha384-q8i/X+965DzO0rT7abK41JStQIAqVgRVzpbzo5smXKp4YfRvH+8abtTE1Pi6jizo" crossorigin="anonymous"></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js" integrity="sha384-UO2eT0CpHqdSJQ6hJty5KVphtPhzWj9WO1clHTMGa3JDZwrnQq4sF86dIHNDz0W1" crossorigin="anonymous"></script>
+        <script src="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/js/bootstrap.min.js" integrity="sha384-JjSmVgyd0p3pXB1rRibZUAYoIIy6OrQ6VrjIEaFf/nJGzIxFDsf4x0xIM+B07jRM" crossorigin="anonymous"></script>
+    </body>
+</html>

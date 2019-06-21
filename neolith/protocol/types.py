@@ -6,10 +6,10 @@ from .base import Binary, Boolean, Container, Int, List, Notification, Object, P
 
 
 class Session (Container):
-    ident = String()
-    username = String()
-    hostname = String(default='unknown')
-    nickname = String(default='unnamed')
+    ident = String(doc='Public session ID used to identify users on the server.')
+    username = String(doc='The username of the session.')
+    hostname = String(doc='The hostname for the session, may be fake.', default='unknown')
+    nickname = String(doc='The nickname for the session, must be unique across all sessions.', default='unnamed')
     pubkey = String(doc='Public key in OpenSSH encoding/format.')
 
     token = None
@@ -34,16 +34,16 @@ class Session (Container):
 
 
 class EncryptedMessage (Container):
-    session_id = String(required=True)
-    data = Binary(required=True)
+    session_id = String(doc='The session ID this message is encrypted for.', required=True)
+    data = Binary(doc='The encrypted message.', required=True)
 
 
 class Channel (Container):
-    name = String()
-    topic = String()
-    protected = Boolean(default=False)
-    private = Boolean(default=False)
-    encrypted = Boolean(default=False)
+    name = String(doc='The unique name of this channel.')
+    topic = String(doc='Topic of the channel')
+    protected = Boolean(doc='Whether this channel can be removed or not.', default=False)
+    private = Boolean(doc='Whether this channel is invitation-only or not.', default=False)
+    encrypted = Boolean(doc='Whether posts to this channel must be encrypted or not.', default=False)
 
     def __init__(self, name, **kwargs):
         self.name = name
