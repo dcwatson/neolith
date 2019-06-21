@@ -17,10 +17,10 @@ class PostChat (Action):
             messages = {e.session_id: e.data for e in self.encrypted}
             for s in channel.sessions:
                 if s.pubkey and s.ident in messages:
-                    s.send(ChatPosted(channel=self.channel,
+                    await s.send(ChatPosted(channel=self.channel,
                            encrypted=messages[s.ident], emote=self.emote, user=session))
         else:
-            channel.send(ChatPosted(channel=self.channel, chat=self.chat, emote=self.emote, user=session))
+            await channel.send(ChatPosted(channel=self.channel, chat=self.chat, emote=self.emote, user=session))
 
 
 @packet('channel.list')

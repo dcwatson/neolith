@@ -181,10 +181,11 @@ class Packet (Container):
 
     sequence = Int()
 
+    def to_dict(self) -> dict:
+        return {self.ident: self.prepare()}
+
     def serialize(self) -> bytes:
-        return json.dumps({
-            self.ident: self.prepare()
-        }).encode('utf-8')
+        return json.dumps(self.to_dict()).encode('utf-8')
 
     @classmethod
     def find(cls, ident: str):

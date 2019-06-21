@@ -13,11 +13,11 @@ import pprint
 
 class SocketClient:
 
-    def connected(self, session):
+    async def connected(self, session):
         print('socket connected')
-        session.send(LoginRequest(username='guest', nickname='socketuser'))
+        await session.send(LoginRequest(username='guest', nickname='socketuser'))
 
-    def disconnected(self, session):
+    async def disconnected(self, session):
         print('socket disconnected')
 
     async def handle(self, session, packet):

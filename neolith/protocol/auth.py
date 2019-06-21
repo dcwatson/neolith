@@ -25,4 +25,4 @@ class LoginResponse (Response):
 @packet('logout', requires_auth=False)
 class Logout (Action):
     async def handle(self, server, session):
-        server.disconnected(session)
+        await server.disconnected(session)

@@ -76,9 +76,7 @@ class NeolithServer:
     async def events_handler(self, request):
         session_token = request.headers.get('x-neolith-session')
         session = self.get(token=session_token, default=WebSession())
-        packets = [{p.ident: p.prepare()} for p in session.queue]
-        session.queue = []
-        return JSONResponse(packets)
+        return JSONResponse([p.to_dict() for p in await session.events()])
 
     async def handle(self, session, packet, send=True):
         assert isinstance(packet, ClientPacket)
@@ -86,16 +84,24 @@ class NeolithServer:
             raise ProtocolError('This request requires authentication.')
         response = await packet.handle(self, session)
         if response and send:
-            session.send(response)
+            await session.send(response)
         return response
+
+    async def connected(self, session):
+        pass
+
+    async def disconnected(self, session):
+        session.authenticated = False
+        if session.ident in self.sessions:
+            del self.sessions[session.ident]
 
     def start(self):
         uvicorn.run(self.web, host=settings.WEB_BIND, port=settings.WEB_PORT)
 
-    def broadcast(self, message):
+    async def broadcast(self, message):
         for session in self.sessions.values():
             if session.authenticated:
-                session.send(message)
+                await session.send(message)
 
     def authenticate(self, session):
         if session.ident in self.sessions:
@@ -111,14 +117,6 @@ class NeolithServer:
         if settings.PUBLIC_CHANNEL:
             self.channels[settings.PUBLIC_CHANNEL].add(session)
         return session.ident
-
-    def connected(self, session):
-        pass
-
-    def disconnected(self, session):
-        session.authenticated = False
-        if session.ident in self.sessions:
-            del self.sessions[session.ident]
 
     def find(self, **kwargs):
         for session in self.sessions.values():
@@ -138,8 +136,8 @@ class NeolithServer:
 
 class SocketSession (asyncio.Protocol, Session):
 
-    def __init__(self, server):
-        self.server = server
+    def __init__(self, delegate):
+        self.delegate = delegate
         self.buffered = b''
         self.transport = None
         self.address = None
@@ -149,10 +147,12 @@ class SocketSession (asyncio.Protocol, Session):
         self.transport = transport
         self.address, self.port = self.transport.get_extra_info('peername')
         self.hostname = self.address  # TODO: look up hostname from address?
-        self.server.connected(self)
+        if hasattr(self.delegate, 'connected'):
+            asyncio.ensure_future(self.delegate.connected(self))
 
     def connection_lost(self, exc):
-        self.server.disconnected(self)
+        if hasattr(self.delegate, 'disconnected'):
+            asyncio.ensure_future(self.delegate.disconnected(self))
 
     def data_received(self, data: bytes):
         self.buffered += data
@@ -162,13 +162,13 @@ class SocketSession (asyncio.Protocol, Session):
             total = 4 + size
             if len(self.buffered) >= total:
                 for packet in Packet.deserialize(self.buffered[4:total]):
-                    asyncio.ensure_future(self.server.handle(self, packet))
+                    asyncio.ensure_future(self.delegate.handle(self, packet))
                 self.buffered = self.buffered[total:]
                 done = len(self.buffered) < 4
             else:
                 done = True
 
-    def send(self, packet: Packet):
+    async def send(self, packet: Packet):
         buf = packet.serialize()
         self.transport.write(struct.pack('!L', len(buf)) + buf)
 
@@ -180,10 +180,20 @@ class WebSocketSession (Session):
 class WebSession (Session):
 
     def __init__(self):
-        self.queue = []
+        self.queue = asyncio.Queue()
 
-    def send(self, packet: Packet):
-        self.queue.append(packet)
+    async def send(self, packet: Packet):
+        await self.queue.put(packet)
+
+    async def events(self, timeout=10.0):
+        if self.queue.empty():
+            # If there are no pending events, allow for long-polling until one comes in.
+            try:
+                return [await asyncio.wait_for(self.queue.get(), timeout=timeout)]
+            except asyncio.TimeoutError:
+                return []
+        else:
+            return [self.queue.get_nowait() for i in range(self.queue.qsize())]
 
 
 if __name__ == '__main__':

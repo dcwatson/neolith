@@ -15,11 +15,11 @@ class Session (Container):
     token = None
     authenticated = False
 
-    def send(self, packet: Packet):
-        raise NotImplementedError()
-
     def __str__(self):
         return '{}!{}@{}'.format(self.nickname, self.username, self.hostname)
+
+    async def send(self, packet: Packet):
+        raise NotImplementedError()
 
     def encrypt(self, text):
         public_key = serialization.load_ssh_public_key(self.pubkey.encode('ascii'), default_backend())
@@ -61,6 +61,6 @@ class Channel (Container):
         self.sessions.discard(session)
         self.invitations.discard(session.ident)
 
-    def send(self, packet: Packet):
+    async def send(self, packet: Packet):
         for s in self.sessions:
-            s.send(packet)
+            await s.send(packet)
