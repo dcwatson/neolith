@@ -1,8 +1,5 @@
-import asyncio
 import base64
-import json
 import re
-import struct
 
 
 registered_packets = {}
@@ -184,31 +181,62 @@ class Container:
         return description
 
 
-class Packet (Container):
+class Sendable:
+
+    def to_dict(self):
+        raise NotImplementedError()
+
+
+class Packet (Container, Sendable):
     ident = None
 
     def to_dict(self) -> dict:
         return {self.ident: self.prepare()}
-
-    def serialize(self) -> bytes:
-        return json.dumps(self.to_dict()).encode('utf-8')
 
     @classmethod
     def find(cls, ident: str):
         global registered_packets
         return registered_packets.get(ident)
 
-    @classmethod
-    def deserialize(cls, buf: bytes):
-        global registered_packets
-        data = json.loads(buf.decode('utf-8'))
+
+class Transaction (Sendable):
+    txid = None
+
+    def __init__(self, data=None, txid=None):
+        self.txid = txid
+        self.packets = []
         if isinstance(data, dict):
-            data = [data]
-        if isinstance(data, (list, tuple)):
-            for packet_data in data:
-                for ident, fields in packet_data.items():
-                    if ident in registered_packets:
-                        yield registered_packets[ident].unpack(fields)
+            for ident, payload in data.items():
+                if ident == 'txid':
+                    self.txid = payload
+                elif ident in registered_packets:
+                    if isinstance(payload, dict):
+                        payload = [payload]
+                    for fields in payload:
+                        self.packets.append(registered_packets[ident].unpack(fields))
+
+    def __iter__(self):
+        for p in self.packets:
+            yield p
+
+    @property
+    def empty(self):
+        return self.txid is None and not self.packets
+
+    def response(self):
+        return self.__class__(txid=self.txid)
+
+    def add(self, packet):
+        if packet:
+            self.packets.append(packet)
+
+    def to_dict(self):
+        data = {}
+        if self.txid:
+            data['txid'] = self.txid
+        for p in self.packets:
+            data.setdefault(p.ident, []).append(p.prepare())
+        return data
 
 
 def packet(ident, requires_auth=True):

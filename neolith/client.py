@@ -3,12 +3,11 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 import requests
 
-from neolith.protocol import EncryptedMessage, GetUserList, LoginRequest, Logout, Packet, PostChat
+from neolith.protocol import EncryptedMessage, GetUserList, LoginRequest, Logout, PostChat, Transaction
 
 from .server import SocketSession
 
 import asyncio
-import pprint
 
 
 class SocketClient:
@@ -21,7 +20,7 @@ class SocketClient:
         print('socket disconnected')
 
     async def handle(self, session, packet):
-        print(packet.serialize())
+        print(packet.to_dict())
 
 
 class WebClient:
@@ -51,7 +50,7 @@ class WebClient:
         url = '{}/api/{}'.format(self.endpoint, packet.ident.replace('.', '/'))
         headers = {'X-Neolith-Session': self.token}
         r = requests.post(url, headers=headers, json=packet.prepare())
-        for p in Packet.deserialize(r.content):
+        for p in Transaction(r.json()):
             p.handle(self)
 
     def login(self, nickname, username='guest', password=''):
@@ -71,9 +70,10 @@ class WebClient:
         url = '{}/api/events'.format(self.endpoint)
         headers = {'X-Neolith-Session': self.token}
         r = requests.get(url, headers=headers)
-        for p in Packet.deserialize(r.content):
-            print(p)
-            p.handle(self)
+        for data in r.json():
+            print(data)
+            for p in Transaction(data):
+                p.handle(self)
 
     def handle_login_response(self, packet):
         print(packet)

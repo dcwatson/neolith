@@ -1,4 +1,4 @@
-from .base import Action, Binary, Boolean, Container, Int, List, Notification, Object, Request, Response, String, packet
+from .base import Action, Binary, Boolean, List, Notification, Object, Request, Response, String, packet
 from .types import Channel, EncryptedMessage, Session
 
 
@@ -8,7 +8,8 @@ from .types import Channel, EncryptedMessage, Session
 class PostChat (Action):
     channel = String(doc='The channel name to post to.', required=True)
     chat = String(doc='The chat to post, if the channel is not encrypted.')
-    encrypted = List(EncryptedMessage, doc='A list of encrypted messages, one for each user in the chat, encrypted for that user.')
+    encrypted = List(EncryptedMessage,
+                     doc='A list of encrypted messages, one for each user in the chat, encrypted for that user.')
     emote = Boolean(default=False, doc='Whether the chat is an emote (action) or not.')
 
     async def handle(self, server, session):

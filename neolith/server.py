@@ -4,10 +4,11 @@ from starlette.websockets import WebSocketDisconnect
 import uvicorn
 
 from neolith import settings
-from neolith.protocol import Channel, ClientPacket, Packet, ProtocolError, Session
+from neolith.protocol import Channel, ClientPacket, Packet, ProtocolError, Sendable, Session, Transaction
 
 import asyncio
 import binascii
+import json
 import os
 import struct
 
@@ -47,13 +48,15 @@ class NeolithServer:
         print('Starting binary protocol server on {}:{}'.format(settings.SOCKET_BIND, settings.SOCKET_PORT))
         # Careful not to use the event loop until after uvicorn starts it, since it may swap in uvloop.
         self.loop = asyncio.get_event_loop()
-        self.server = await self.loop.create_server(lambda: SocketSession(self), settings.SOCKET_BIND, settings.SOCKET_PORT)
+        self.server = await self.loop.create_server(lambda: SocketSession(self), settings.SOCKET_BIND,
+            settings.SOCKET_PORT)
 
     async def shutdown(self):
         print('Stopping binary protocol server')
         self.server.close()
 
     async def api_handler(self, request):
+        # The web API encodes packet identifiers in the URL path.
         ident = request.path_params['ident'].rstrip('/').replace('/', '.')
         packet_class = Packet.find(ident)
         if packet_class is None:
@@ -64,14 +67,11 @@ class NeolithServer:
             session_token = request.headers.get('x-neolith-session')
             session = self.get(token=session_token, default=WebSession())
             session.hostname = request.client.host
-            packet = packet_class.unpack(await request.json())
-            response = await self.handle(session, packet, send=False)
-            if response:
-                return JSONResponse({
-                    response.ident: response.prepare(),
-                })
-            else:
-                return JSONResponse({})
+            tx = Transaction(data={
+                ident: await request.json(),
+            })
+            response = await self.handle(session, tx, send=False)
+            return JSONResponse(response.to_dict())
         else:
             return JSONResponse({'error': 'Invalid HTTP method.'}, status_code=405)
 
@@ -88,23 +88,21 @@ class NeolithServer:
 
         try:
             while True:
-                msg = await websocket.receive_json()
-                for ident, fields in msg.items():
-                    packet_class = Packet.find(ident)
-                    if packet_class:
-                        packet = packet_class.unpack(fields)
-                        await self.handle(session, packet)
+                tx = Transaction(await websocket.receive_json())
+                await self.handle(session, tx)
         except WebSocketDisconnect:
             print('websocket disconnected')
         finally:
             self.disconnected(session)
 
-    async def handle(self, session, packet, send=True):
-        assert isinstance(packet, ClientPacket)
-        if packet.requires_auth and not session.authenticated:
-            raise ProtocolError('This request requires authentication.')
-        response = await packet.handle(self, session)
-        if response and send:
+    async def handle(self, session, transaction, send=True):
+        response = transaction.response()
+        for packet in transaction.packets:
+            assert isinstance(packet, ClientPacket)
+            if packet.requires_auth and not session.authenticated:
+                raise ProtocolError('This request requires authentication.')
+            response.add(await packet.handle(self, session))
+        if send and not response.empty:
             await session.send(response)
         return response
 
@@ -182,15 +180,16 @@ class SocketSession (asyncio.Protocol, Session):
             size = struct.unpack('!L', self.buffered[:4])[0]
             total = 4 + size
             if len(self.buffered) >= total:
-                for packet in Packet.deserialize(self.buffered[4:total]):
-                    asyncio.ensure_future(self.delegate.handle(self, packet))
+                json_data = json.loads(self.buffered[4:total])
+                tx = Transaction(data=json_data)
+                asyncio.ensure_future(self.delegate.handle(self, tx))
                 self.buffered = self.buffered[total:]
                 done = len(self.buffered) < 4
             else:
                 done = True
 
-    async def send(self, packet: Packet):
-        buf = packet.serialize()
+    async def send(self, data: Sendable):
+        buf = json.dumps(data.to_dict()).encode('utf-8')
         self.transport.write(struct.pack('!L', len(buf)) + buf)
 
 
@@ -199,8 +198,8 @@ class WebSocketSession (Session):
     def __init__(self, websocket):
         self.websocket = websocket
 
-    async def send(self, packet: Packet):
-        await self.websocket.send_json(packet.to_dict())
+    async def send(self, data: Sendable):
+        await self.websocket.send_json(data.to_dict())
 
 
 class WebSession (Session):
@@ -208,8 +207,8 @@ class WebSession (Session):
     def __init__(self):
         self.queue = asyncio.Queue()
 
-    async def send(self, packet: Packet):
-        await self.queue.put(packet)
+    async def send(self, data: Sendable):
+        await self.queue.put(data)
 
     async def events(self, timeout=10.0):
         if self.queue.empty():

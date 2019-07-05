@@ -1,8 +1,8 @@
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import padding, rsa
+from cryptography.hazmat.primitives.asymmetric import padding
 
-from .base import Binary, Boolean, Container, Int, List, Notification, Object, Packet, Request, Response, String, packet
+from .base import Binary, Boolean, Container, Sendable, String
 
 
 class Session (Container):
@@ -18,7 +18,7 @@ class Session (Container):
     def __str__(self):
         return '{}!{}@{}'.format(self.nickname, self.username, self.hostname)
 
-    async def send(self, packet: Packet):
+    async def send(self, data: Sendable):
         raise NotImplementedError()
 
     def encrypt(self, text):
@@ -61,6 +61,6 @@ class Channel (Container):
         self.sessions.discard(session)
         self.invitations.discard(session.ident)
 
-    async def send(self, packet: Packet):
+    async def send(self, data: Sendable):
         for s in self.sessions:
-            await s.send(packet)
+            await s.send(data)

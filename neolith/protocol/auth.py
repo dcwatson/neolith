@@ -1,4 +1,4 @@
-from .base import Action, Binary, Int, Request, Response, String, packet
+from .base import Action, Request, Response, String, packet
 
 
 @packet('login', requires_auth=False)

@@ -1,6 +1,6 @@
 import pytest
 
-from neolith.protocol import Binary, Container, Int, List, Packet, ProtocolError, String, packet
+from neolith.protocol import Binary, Container, Int, List, Packet, ProtocolError, String, Transaction, packet
 
 
 class SomeType (Container):
@@ -25,7 +25,7 @@ class SomeRequest (Packet):
 
 def test_round_trip():
     p1 = SomeRequest(sequence=1, nickname="unnamed", icon=b'123')
-    for p2 in Packet.deserialize(p1.serialize()):
+    for p2 in Transaction(p1.to_dict()).packets:
         assert p2.__class__ is SomeRequest
         assert p1.ident == p2.ident
         assert p1.sequence == p2.sequence
@@ -53,12 +53,12 @@ def test_required():
     p1 = SomeRequest()
     p1.sequence = None
     with pytest.raises(ProtocolError):
-        p1.serialize()
+        p1.to_dict()
 
 
 def test_lists():
     p1 = SomeRequest(sequence=2, ints=[1, 2, 3, 5, 8])
-    for p2 in Packet.deserialize(p1.serialize()):
+    for p2 in Transaction(p1.to_dict()).packets:
         assert p1.ints == p2.ints
     p3 = SomeResponse(
         reply="hello there",
@@ -67,5 +67,5 @@ def test_lists():
             SomeType(name="bar", flags=2),
         ]
     )
-    for p4 in Packet.deserialize(p3.serialize()):
+    for p4 in Transaction(p3.to_dict()).packets:
         assert ["foo", "bar"] == [t.name for t in p4.objects]
