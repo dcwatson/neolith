@@ -1,5 +1,6 @@
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
+from starlette.websockets import WebSocketDisconnect
 import uvicorn
 
 from neolith import settings
@@ -40,6 +41,7 @@ class NeolithServer:
         self.web.add_event_handler('shutdown', self.shutdown)
         self.web.add_route('/api/events', self.events_handler, methods=['GET', 'POST'])
         self.web.add_route('/api/{ident:path}', self.api_handler, methods=['GET', 'POST'])
+        self.web.add_websocket_route('/ws', self.websocket_handler)
 
     async def startup(self):
         print('Starting binary protocol server on {}:{}'.format(settings.SOCKET_BIND, settings.SOCKET_PORT))
@@ -77,6 +79,25 @@ class NeolithServer:
         session_token = request.headers.get('x-neolith-session')
         session = self.get(token=session_token, default=WebSession())
         return JSONResponse([p.to_dict() for p in await session.events()])
+
+    async def websocket_handler(self, websocket, **kwargs):
+        await websocket.accept()
+
+        session = WebSocketSession(websocket)
+        session.hostname = websocket.client.host
+
+        try:
+            while True:
+                msg = await websocket.receive_json()
+                for ident, fields in msg.items():
+                    packet_class = Packet.find(ident)
+                    if packet_class:
+                        packet = packet_class.unpack(fields)
+                        await self.handle(session, packet)
+        except WebSocketDisconnect:
+            print('websocket disconnected')
+        finally:
+            self.disconnected(session)
 
     async def handle(self, session, packet, send=True):
         assert isinstance(packet, ClientPacket)
@@ -174,7 +195,12 @@ class SocketSession (asyncio.Protocol, Session):
 
 
 class WebSocketSession (Session):
-    pass
+
+    def __init__(self, websocket):
+        self.websocket = websocket
+
+    async def send(self, packet: Packet):
+        await self.websocket.send_json(packet.to_dict())
 
 
 class WebSession (Session):

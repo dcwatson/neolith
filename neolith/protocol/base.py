@@ -187,8 +187,6 @@ class Container:
 class Packet (Container):
     ident = None
 
-    # sequence = Int()
-
     def to_dict(self) -> dict:
         return {self.ident: self.prepare()}
 
