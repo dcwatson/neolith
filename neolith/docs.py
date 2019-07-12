@@ -1,6 +1,8 @@
 from starlette.applications import Starlette
 from starlette.templating import Jinja2Templates
 
+from neolith.protocol import registered_packets, types
+
 import os
 
 
@@ -13,8 +15,14 @@ app.debug = True
 
 @app.route('/')
 async def index(request):
-    from neolith.protocol import registered_packets, Session, Channel, EncryptedMessage
-    data_types = [Session, Channel, EncryptedMessage]  # TODO: make this dynamic
+    data_types = []
+    for name in dir(types):
+        try:
+            t = getattr(types, name)
+            if t.__module__ == 'neolith.protocol.types':
+                data_types.append(t)
+        except AttributeError:
+            pass
     return templates.TemplateResponse('docs/protocol.html', {
         'request': request,
         'registered_packets': registered_packets,

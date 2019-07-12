@@ -14,6 +14,27 @@
         <div class="container">
             <div class="row">
                 <div class="col-sm-12">
+                    <h1>Transactions</h1>
+                    <p>The structure of every Neolith request and response is a JSON dictionary (called a Transaction) optionally containing the following keys:</p>
+                    <ul>
+                        <li><code>txid</code> - a unique identifier of the transaction. Any response will contain the same <code>txid</code> you send - it can be any data you'd like. Even requests that normally would not generate a response (i.e. an "Action" below) will send back a transaction with the specified <code>txid</code> if one was provided.</li>
+                        <li><code>error</code> - for responses to failed requests, this will contain an error message string.</li>
+                        <li><code>packet.type</code> - one of the packet types below. The Neolith server will always send back a list of packet payloads for each of these keys, but will accept a single dictionary if a client wishes to send just a single packet of that type. A transaction can contain multiple packet types, and multiple packets of each type.</li>
+                    </ul>
+                    <h2>Sample Transactions</h2>
+                    <p>
+                        <dl>
+                            <dt>Client</dt>
+                            <dd><code>{"txid": 1, "login": {"username": "bob", "password": "secret", "nickname": "bobthebuilder"}}</code></dd>
+                            <dt>Server</dt>
+                            <dd><code>{"txid": 1, "login.response": [{"session_id": "12345", "token": "webaccesstoken", "server_name": "Neolith"}]}</code></dd>
+                            <dt>Client</dt>
+                            <dd><code>{"txid": 2, "user.list": {}, "channel.list": {}}</code></dd>
+                            <dt>Server</dt>
+                            <dd><code>{"txid": 2, "user.listing": [{"users": [{"ident": "..."}]}], "channel.listing": [{"channels": [{"name": "public"}]}]}</code></dd>
+                        </dl>
+                    </p>
+
                     <h1>Data Types</h1>
                     <table class="table table-bordered table-sm">
                         <thead>
@@ -27,7 +48,7 @@
                         </thead>
                         {% for type in data_types %}
                             {% set fields = type.describe() %}
-                            <tbody>
+                            <tbody id="type-{{ type.__name__ }}">
                                 <tr>
                                     <th class="table-info" colspan="5">{{ type.__name__ }}</th>
                                 </tr>
@@ -67,7 +88,7 @@
                                 {% for field, info in fields.items() %}
                                     <tr>
                                         <td>{{ field }}</td>
-                                        <td>{% if info.item_type %}[{{ info.item_type }}]{% else %}{{ info.type }}{% endif %}</td>
+                                        <td>{% if info.item_type %}[{% if info.item_type[0] == info.item_type[0].upper() %}<a href="#type-{{ info.item_type }}">{{ info.item_type }}</a>{% else %}{{ info.item_type }}{% endif %}]{% else %}{% if info.type[0] == info.type[0].upper() %}<a href="#type-{{ info.type }}">{{ info.type }}</a>{% else %}{{ info.type }}{% endif %}{% endif %}</td>
                                         <td>{{ info.default|default('', True) }}</td>
                                         <td>
                                             {% if info.required %}<span class="badge badge-info">Required</span>{% endif %}
