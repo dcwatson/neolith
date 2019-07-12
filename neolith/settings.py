@@ -18,4 +18,5 @@ SOCKET_PORT = config('SOCKET_PORT', cast=int, default=8120)
 WEB_BIND = config('WEB_BIND', default='0.0.0.0')
 WEB_PORT = config('WEB_PORT', cast=int, default=8080)
 
+SERVER_NAME = config('SERVER_NAME', default='Neolith')
 PUBLIC_CHANNEL = config('PUBLIC_CHANNEL', default='public')

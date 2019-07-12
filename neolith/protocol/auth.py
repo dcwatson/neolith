@@ -12,14 +12,15 @@ class LoginRequest (Request):
         session.username = self.username
         session.nickname = self.nickname
         session.pubkey = self.pubkey
-        server.authenticate(session)
-        return LoginResponse(session_id=session.ident, token=session.token)
+        await server.authenticate(session)
+        return LoginResponse(session_id=session.ident, token=session.token, server_name=server.name)
 
 
 @packet('login.response')
 class LoginResponse (Response):
     session_id = String(doc='Public session ID used to identify users on the server.')
     token = String(doc='Private authentication token for your session, for use with the web APIs.')
+    server_name = String(doc='Name of the server.')
 
 
 @packet('logout', requires_auth=False)

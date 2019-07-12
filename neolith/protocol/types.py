@@ -45,11 +45,10 @@ class Channel (Container):
     private = Boolean(doc='Whether this channel is invitation-only or not.', default=False)
     encrypted = Boolean(doc='Whether posts to this channel must be encrypted or not.', default=False)
 
-    def __init__(self, name, **kwargs):
-        self.name = name
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
         self.sessions = set()
         self.invitations = set()
-        super().__init__(**kwargs)
 
     def invite(self, session):
         self.invitations.add(session.ident)
@@ -63,4 +62,5 @@ class Channel (Container):
 
     async def send(self, data: Sendable):
         for s in self.sessions:
-            await s.send(data)
+            if s.authenticated:
+                await s.send(data)

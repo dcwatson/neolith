@@ -191,7 +191,7 @@ class Packet (Container, Sendable):
     ident = None
 
     def to_dict(self) -> dict:
-        return {self.ident: self.prepare()}
+        return {self.ident: [self.prepare()]}
 
     @classmethod
     def find(cls, ident: str):
@@ -201,6 +201,7 @@ class Packet (Container, Sendable):
 
 class Transaction (Sendable):
     txid = None
+    error = None
 
     def __init__(self, data=None, txid=None):
         self.txid = txid
@@ -234,6 +235,8 @@ class Transaction (Sendable):
         data = {}
         if self.txid:
             data['txid'] = self.txid
+        if self.error:
+            data['error'] = str(self.error)
         for p in self.packets:
             data.setdefault(p.ident, []).append(p.prepare())
         return data

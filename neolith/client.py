@@ -47,9 +47,8 @@ class WebClient:
         ).decode('utf-8')
 
     def send(self, packet):
-        url = '{}/api/{}'.format(self.endpoint, packet.ident.replace('.', '/'))
         headers = {'X-Neolith-Session': self.token}
-        r = requests.post(url, headers=headers, json=packet.prepare())
+        r = requests.post(self.endpoint, headers=headers, json=packet.to_dict())
         for p in Transaction(r.json()):
             p.handle(self)
 
@@ -67,9 +66,8 @@ class WebClient:
         self.send(PostChat(channel=channel, encrypted=encrypted))
 
     def events(self):
-        url = '{}/api/events'.format(self.endpoint)
         headers = {'X-Neolith-Session': self.token}
-        r = requests.get(url, headers=headers)
+        r = requests.get(self.endpoint, headers=headers)
         for data in r.json():
             print(data)
             for p in Transaction(data):
@@ -97,7 +95,7 @@ async def main(loop):
 
 
 if __name__ == '__main__':
-    client = WebClient('http://localhost:8080')
+    client = WebClient('http://localhost:8080/api')
     client.login('webuser')
     client.userlist()
     client.chat('public', 'hello world')

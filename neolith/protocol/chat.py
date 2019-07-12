@@ -1,4 +1,4 @@
-from .base import Action, Binary, Boolean, List, Notification, Object, Request, Response, String, packet
+from .base import Action, Binary, Boolean, List, Notification, Object, ProtocolError, Request, Response, String, packet
 from .types import Channel, EncryptedMessage, Session
 
 
@@ -42,7 +42,14 @@ class GetChannelUsers (Request):
 
 @packet('channel.create')
 class CreateChannel (Request):
-    channel = String(doc='The name of the channel to create.', required=True)
+    channel = Object(Channel, doc='The channel to create.', required=True)
+
+    async def handle(self, server, session):
+        if self.channel.name in server.channels:
+            raise ProtocolError('A channel named "{}" already exists.'.format(self.channel.name))
+        server.channels.add(self.channel)
+        # TODO: auto-join?
+        await server.broadcast(ChannelCreated(channel=self.channel))
 
 
 @packet('channel.invite')
@@ -61,10 +68,20 @@ class DeclineInvitation (Request):
 class JoinChannel (Request):
     channel = String(doc='The channel name you wish to join.', required=True)
 
+    async def handle(self, server, session):
+        channel = server.channels[self.channel]
+        channel.add(session)
+        channel.send(ChannelJoin(channel=self.channel, user=session))
+
 
 @packet('channel.leave')
 class LeaveChannel (Request):
     channel = String(doc='The channel name you wish to leave.', required=True)
+
+    async def handle(self, server, session):
+        channel = server.channels[self.channel]
+        channel.remove(session)
+        channel.send(ChannelLeave(channel=self.channel, user=session))
 
 
 @packet('channel.modify')
@@ -94,6 +111,11 @@ class ChannelList (Response):
 class ChannelUsers (Response):
     channel = String(doc='The channel name that the associated users are for.', required=True)
     users = List(Session, doc='A list of users in the channel.')
+
+
+@packet('channel.created')
+class ChannelCreated (Response):
+    channel = Object(Channel, doc='The channel that was created.', required=True)
 
 
 @packet('channel.invited')

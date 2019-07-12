@@ -4,7 +4,9 @@ from starlette.websockets import WebSocketDisconnect
 import uvicorn
 
 from neolith import settings
-from neolith.protocol import Channel, ClientPacket, Packet, ProtocolError, Sendable, Session, Transaction
+from neolith.protocol import (
+    Channel, ChannelJoin, ChannelLeave, ClientPacket, ProtocolError, Sendable, Session, Transaction, UserJoined,
+    UserLeft)
 
 import asyncio
 import binascii
@@ -18,13 +20,19 @@ class Channels:
     def __init__(self):
         self.channels = {}
 
+    def __contains__(self, key: str):
+        return key in self.channels
+
     def __getitem__(self, key: str):
         if key not in self.channels:
-            raise ProtocolError('Invalid channel.')
+            raise ProtocolError('No such channel: "{}"'.format(key))
         return self.channels[key]
 
-    def add(self, name, **kwargs):
-        return self.channels.setdefault(name, Channel(name, **kwargs))
+    def __iter__(self):
+        return iter(self.channels.values())
+
+    def add(self, channel):
+        return self.channels.setdefault(channel.name, channel)
 
 
 class NeolithServer:
@@ -34,14 +42,13 @@ class NeolithServer:
         self.server = None
         self.sessions = {}
         self.channels = Channels()
+        self.name = settings.SERVER_NAME
         if settings.PUBLIC_CHANNEL:
-            # XXX: public channel encryption probably not necessary, just testing
-            self.channels.add(settings.PUBLIC_CHANNEL, protected=True, encrypted=True)
+            self.channels.add(Channel(name=settings.PUBLIC_CHANNEL, topic='', protected=True, encrypted=False))
         self.web = Starlette(debug=True)
         self.web.add_event_handler('startup', self.startup)
         self.web.add_event_handler('shutdown', self.shutdown)
-        self.web.add_route('/api/events', self.events_handler, methods=['GET', 'POST'])
-        self.web.add_route('/api/{ident:path}', self.api_handler, methods=['GET', 'POST'])
+        self.web.add_route('/api', self.web_handler, methods=['GET', 'POST'])
         self.web.add_websocket_route('/ws', self.websocket_handler)
 
     async def startup(self):
@@ -55,30 +62,18 @@ class NeolithServer:
         print('Stopping binary protocol server')
         self.server.close()
 
-    async def api_handler(self, request):
-        # The web API encodes packet identifiers in the URL path.
-        ident = request.path_params['ident'].rstrip('/').replace('/', '.')
-        packet_class = Packet.find(ident)
-        if packet_class is None:
-            return JSONResponse({'error': 'Invalid packet type: "{}"'.format(ident)}, status_code=404)
+    async def web_handler(self, request):
+        session_token = request.headers.get('x-neolith-session')
+        session = self.get(token=session_token, default=WebSession())
         if request.method == 'GET':
-            return JSONResponse(packet_class.describe())
+            return JSONResponse([tx.to_dict() for tx in await session.events()])
         elif request.method == 'POST':
-            session_token = request.headers.get('x-neolith-session')
-            session = self.get(token=session_token, default=WebSession())
             session.hostname = request.client.host
-            tx = Transaction(data={
-                ident: await request.json(),
-            })
+            tx = Transaction(await request.json())
             response = await self.handle(session, tx, send=False)
             return JSONResponse(response.to_dict())
         else:
             return JSONResponse({'error': 'Invalid HTTP method.'}, status_code=405)
-
-    async def events_handler(self, request):
-        session_token = request.headers.get('x-neolith-session')
-        session = self.get(token=session_token, default=WebSession())
-        return JSONResponse([p.to_dict() for p in await session.events()])
 
     async def websocket_handler(self, websocket, **kwargs):
         await websocket.accept()
@@ -93,15 +88,19 @@ class NeolithServer:
         except WebSocketDisconnect:
             print('websocket disconnected')
         finally:
-            self.disconnected(session)
+            await self.disconnected(session)
 
     async def handle(self, session, transaction, send=True):
+        print(session, '-->', transaction.to_dict())
         response = transaction.response()
         for packet in transaction.packets:
             assert isinstance(packet, ClientPacket)
-            if packet.requires_auth and not session.authenticated:
-                raise ProtocolError('This request requires authentication.')
-            response.add(await packet.handle(self, session))
+            try:
+                if packet.requires_auth and not session.authenticated:
+                    raise ProtocolError('This request requires authentication.')
+                response.add(await packet.handle(self, session))
+            except ProtocolError as e:
+                response.error = str(e)
         if send and not response.empty:
             await session.send(response)
         return response
@@ -111,6 +110,11 @@ class NeolithServer:
 
     async def disconnected(self, session):
         session.authenticated = False
+        for channel in self.channels:
+            if session in channel.sessions:
+                channel.remove(session)
+                await channel.send(ChannelLeave(channel=channel.name, user=session))
+        await self.broadcast(UserLeft(user=session))
         if session.ident in self.sessions:
             del self.sessions[session.ident]
 
@@ -122,7 +126,7 @@ class NeolithServer:
             if session.authenticated:
                 await session.send(message)
 
-    def authenticate(self, session):
+    async def authenticate(self, session):
         if session.ident in self.sessions:
             raise ProtocolError('Session is already authenticated.')
         if self.get(nickname=session.nickname):
@@ -133,8 +137,11 @@ class NeolithServer:
         self.sessions[session.ident] = session
         print('Authenticated {}'.format(session))
         # XXX: where should this go?
+        await self.broadcast(UserJoined(user=session))
         if settings.PUBLIC_CHANNEL:
-            self.channels[settings.PUBLIC_CHANNEL].add(session)
+            channel = self.channels[settings.PUBLIC_CHANNEL]
+            channel.add(session)
+            await channel.send(ChannelJoin(channel=settings.PUBLIC_CHANNEL, user=session))
         return session.ident
 
     def find(self, **kwargs):
@@ -189,6 +196,7 @@ class SocketSession (asyncio.Protocol, Session):
                 done = True
 
     async def send(self, data: Sendable):
+        print(self, '<--', data.to_dict())
         buf = json.dumps(data.to_dict()).encode('utf-8')
         self.transport.write(struct.pack('!L', len(buf)) + buf)
 
@@ -199,6 +207,7 @@ class WebSocketSession (Session):
         self.websocket = websocket
 
     async def send(self, data: Sendable):
+        print(self, '<--', data.to_dict())
         await self.websocket.send_json(data.to_dict())
 
 
@@ -208,6 +217,7 @@ class WebSession (Session):
         self.queue = asyncio.Queue()
 
     async def send(self, data: Sendable):
+        print(self, '<--', data.to_dict())
         await self.queue.put(data)
 
     async def events(self, timeout=10.0):
