@@ -131,17 +131,18 @@ class NeolithServer:
             raise ProtocolError('Session is already authenticated.')
         if self.get(nickname=session.nickname):
             raise ProtocolError('This nickname is already in use.')
-        session.authenticated = True
         session.ident = binascii.hexlify(os.urandom(16)).decode('ascii')
         session.token = binascii.hexlify(os.urandom(16)).decode('ascii')
-        self.sessions[session.ident] = session
-        print('Authenticated {}'.format(session))
-        # XXX: where should this go?
+        # XXX: where should this go? maybe a new task to be executed next time through the loop?
         await self.broadcast(UserJoined(user=session))
-        if settings.PUBLIC_CHANNEL:
+        if settings.PUBLIC_CHANNEL and settings.AUTO_JOIN:
             channel = self.channels[settings.PUBLIC_CHANNEL]
             channel.add(session)
             await channel.send(ChannelJoin(channel=settings.PUBLIC_CHANNEL, user=session))
+        # Authenticate the session after sending the joins, so we don't send joins before the login response.
+        print('Authenticated {}'.format(session))
+        session.authenticated = True
+        self.sessions[session.ident] = session
         return session.ident
 
     def find(self, **kwargs):

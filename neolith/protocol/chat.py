@@ -71,7 +71,7 @@ class JoinChannel (Request):
     async def handle(self, server, session):
         channel = server.channels[self.channel]
         channel.add(session)
-        channel.send(ChannelJoin(channel=self.channel, user=session))
+        await channel.send(ChannelJoin(channel=self.channel, user=session))
 
 
 @packet('channel.leave')
@@ -81,7 +81,7 @@ class LeaveChannel (Request):
     async def handle(self, server, session):
         channel = server.channels[self.channel]
         channel.remove(session)
-        channel.send(ChannelLeave(channel=self.channel, user=session))
+        await channel.send(ChannelLeave(channel=self.channel, user=session))
 
 
 @packet('channel.modify')

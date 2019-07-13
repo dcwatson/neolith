@@ -20,3 +20,4 @@ WEB_PORT = config('WEB_PORT', cast=int, default=8080)
 
 SERVER_NAME = config('SERVER_NAME', default='Neolith')
 PUBLIC_CHANNEL = config('PUBLIC_CHANNEL', default='public')
+AUTO_JOIN = config('AUTO_JOIN', cast=bool, default=False)
