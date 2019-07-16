@@ -46,7 +46,7 @@ class NeolithServer:
         self.channels = Channels()
         self.name = settings.SERVER_NAME
         if settings.PUBLIC_CHANNEL:
-            self.channels.add(Channel(name=settings.PUBLIC_CHANNEL, topic='', protected=True, encrypted=False))
+            self.channels.add(Channel(name=settings.PUBLIC_CHANNEL, topic='', protected=True, encrypted=True))
         self.web = Starlette(debug=True)
         self.web.add_event_handler('startup', self.startup)
         self.web.add_event_handler('shutdown', self.shutdown)

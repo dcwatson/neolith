@@ -1,4 +1,6 @@
+aiofiles
 cryptography
+jinja2
 requests
 starlette
 uvicorn

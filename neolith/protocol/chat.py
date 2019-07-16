@@ -72,6 +72,7 @@ class JoinChannel (Request):
         channel = server.channels[self.channel]
         channel.add(session)
         await channel.send(ChannelJoin(channel=self.channel, user=session))
+        # return ChannelUsers(channel=self.channel, users=list(channel.sessions))
 
 
 @packet('channel.leave')

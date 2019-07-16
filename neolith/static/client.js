@@ -21,18 +21,6 @@ function b64decode(s) {
     return buf;
 }
 
-/*
-function encrypt(keyData, str) {
-    window.crypto.subtle.importKey("spki", keyData, algorithm, true, ['encrypt']).then(function(publicKey) {
-        console.log(publicKey);
-        var data = new TextEncoder('UTF-8').encode(str);
-        window.crypto.subtle.encrypt(algorithm, publicKey, data).then(function(buf) {
-            print(b64encode(buf));
-        });
-    });
-}
-*/
-
 Vue.component('chat-line', {
     props: ['line'],
     template: `
@@ -50,12 +38,14 @@ var vm = new Vue({
         showNav: true,
         serverName: 'Neolith',
         authenticated: false,
-        showChannel: 'public',
+        showChannel: null,
         nickname: 'unnamed',
         username: 'guest',
         password: '',
+        sessionId: null,
         chat: '',
         channels: [],
+        channelUsers: {},
         users: [],
         buffer: {},
         showError: false,
@@ -66,8 +56,7 @@ var vm = new Vue({
     },
     computed: {
         currentChannel: function() {
-            var show = this.showChannel;
-            return this.channels.find(function(c) { return c.name == show; });
+            return this.getChannel(this.showChannel);
         },
         currentBuffer: function() {
             return this.buffer[this.showChannel] || [];
@@ -82,7 +71,21 @@ var vm = new Vue({
         });
     },
     methods: {
-        decrypt: function(buf) {
+        getChannel: function(name) {
+            for(var i = 0; i < this.channels.length; i++) {
+                if (this.channels[i].name == name) {
+                    return this.channels[i];
+                }
+            }
+            return null;
+        },
+        getUser: function(ident) {
+            for(var i = 0; i < this.users.length; i++) {
+                if (this.users[i].ident == ident) {
+                    return this.users[i];
+                }
+            }
+            return null;
         },
         login: function() {
             var self = this;
@@ -114,6 +117,7 @@ var vm = new Vue({
             this.channels = [];
             this.users = [];
             this.buffer = {};
+            this.channelUsers = {};
         },
         write: function(tx) {
             console.log('SEND', tx);
@@ -123,10 +127,10 @@ var vm = new Vue({
             var self = this;
             console.log('RECV', tx);
             Object.getOwnPropertyNames(tx).forEach(function(ident) {
-                if(ident == 'txid') {
+                if (ident == 'txid') {
                     // Not doing anything with transactions in this client (yet).
                 }
-                else if(ident == 'error') {
+                else if (ident == 'error') {
                     self.handleError(tx[ident]);
                 }
                 else {
@@ -144,6 +148,7 @@ var vm = new Vue({
             switch(ident) {
                 case 'login.response':
                     this.serverName = data.server_name;
+                    this.sessionId = data.session_id;
                     this.authenticated = true;
                     this.write({
                         'user.list': {},
@@ -155,11 +160,6 @@ var vm = new Vue({
                     break;
                 case 'channel.listing':
                     this.channels = data.channels;
-                    this.write({
-                        'channel.join': {
-                            'channel': 'public'
-                        }
-                    });
                     break;
                 case 'user.joined':
                     this.users.push(data.user);
@@ -169,37 +169,120 @@ var vm = new Vue({
                     var idx = this.users.findIndex(function(u) { return u.ident == uid; });
                     this.users.splice(idx, 1);
                     break;
-                case 'channel.posted':
-                    if (!(data.channel in this.buffer)) {
-                        this.$set(this.buffer, data.channel, []);
-                    }
-                    /*
-                        var buf = b64decode(data.encrypted);
-                        window.crypto.subtle.decrypt(algorithm, this.privateKey, buf).then(function(plaintext) {
-                            var str = new TextDecoder('UTF-8').decode(plaintext);
-                            console.log(str);
+                case 'channel.joined':
+                    var channel = this.getChannel(data.channel);
+                    if (data.user.ident == this.sessionId) {
+                        // This was us joining a channel, request the userlist for it.
+                        this.write({
+                            'channel.users': {
+                                'channel': data.channel
+                            }
                         });
-                    */
-                    var now = new Date();
-                    this.buffer[data.channel].push({
-                        timestamp: `${now.getHours()}:${now.getMinutes()}`,
-                        from: data.user.nickname,
-                        text: data.chat,
-                        emote: data.emote
+                        this.showChannel = data.channel;
+                    }
+                    else {
+                        if (!(data.channel in this.channelUsers)) {
+                            this.$set(this.channelUsers, data.channel, []);
+                        }
+                        var user = this.getUser(data.user.ident);
+                        if (user) {
+                            this.channelUsers[data.channel].push(user);
+                        }
+                    }
+                    break;
+                case 'channel.left':
+                    var uid = data.user.ident;
+                    var idx = this.channelUsers[data.channel].findIndex(function(u) { return u.ident == uid; });
+                    this.channelUsers[data.channel].splice(idx, 1);
+                    break;
+                case 'channel.userlist':
+                    if (!(data.channel in this.channelUsers)) {
+                        this.$set(this.channelUsers, data.channel, []);
+                    }
+                    var self = this;
+                    data.users.forEach(function(u) {
+                        var user = self.getUser(u.ident);
+                        self.channelUsers[data.channel].push(user);
                     });
+                    break;
+                case 'channel.posted':
+                    var channel = this.getChannel(data.channel);
+                    var user = this.getUser(data.user.ident);
+                    var self = this;
+                    if (channel && user) {
+                        if (!(channel.name in this.buffer)) {
+                            this.$set(this.buffer, channel.name, []);
+                        }
+                        if (channel.encrypted && data.encrypted) {
+                            window.crypto.subtle.decrypt(algorithm, this.privateKey, b64decode(data.encrypted)).then(function(plaintext) {
+                                var chat = new TextDecoder('UTF-8').decode(plaintext);
+                                self.addChat(channel, chat, user, data.emote);
+                            });
+                        }
+                        else {
+                            this.addChat(channel, data.chat, user, data.emote);
+                        }
+                    }
                     break;
                 default:
                     console.log('unhandled packet', ident, data);
             }
         },
-        post: function() {
+        addChat: function(channel, chat, user, emote) {
+            var now = new Date();
+            this.buffer[channel.name].push({
+                timestamp: `${now.getHours()}:${now.getMinutes()}`,
+                from: user.nickname,
+                text: chat,
+                emote: emote
+            });
+            this.$vuetify.goTo(9999);
+        },
+        join: function(name) {
             this.write({
-                'channel.post': {
-                    channel: this.showChannel,
-                    chat: this.chat,
-                    emote: false
+                'channel.join': {
+                    'channel': name
                 }
             });
+        },
+        post: function() {
+            var self = this;
+            var channel = this.showChannel;
+            if (this.currentChannel.encrypted) {
+                var data = new TextEncoder('UTF-8').encode(this.chat);
+                var promises = [];
+                this.channelUsers[channel].forEach(function(u) {
+                    if (u.pubkey) {
+                        // TODO: cache imported public keys? message signing??
+                        promises.push(window.crypto.subtle.importKey("spki", b64decode(u.pubkey), algorithm, true, ['encrypt']).then(function(publicKey) {
+                            return window.crypto.subtle.encrypt(algorithm, publicKey, data).then(function(buf) {
+                                return {
+                                    session_id: u.ident,
+                                    data: b64encode(buf)
+                                };
+                            });
+                        }));
+                    }
+                });
+                Promise.all(promises).then(function(messages) {
+                    self.write({
+                        'channel.post': {
+                            channel: channel,
+                            encrypted: messages,
+                            emote: false
+                        }
+                    });
+                });
+            }
+            else {
+                this.write({
+                    'channel.post': {
+                        channel: channel,
+                        chat: this.chat,
+                        emote: false
+                    }
+                });
+            }
             this.chat = '';
         }
     }
