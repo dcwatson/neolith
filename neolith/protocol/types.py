@@ -10,7 +10,7 @@ class Session (Container):
     username = String(doc='The username of the session.')
     hostname = String(doc='The hostname for the session, may be fake.', default='unknown')
     nickname = String(doc='The nickname for the session, must be unique across all sessions.', default='unnamed')
-    pubkey = String(doc='Public key in OpenSSH encoding/format.')
+    pubkey = Binary(doc='Public key; DER-encoded SPKI.')
 
     token = None
     authenticated = False
@@ -22,7 +22,7 @@ class Session (Container):
         raise NotImplementedError()
 
     def encrypt(self, text):
-        public_key = serialization.load_ssh_public_key(self.pubkey.encode('ascii'), default_backend())
+        public_key = serialization.load_der_public_key(self.pubkey, default_backend())
         return public_key.encrypt(
             text.encode('utf-8'),
             padding.OAEP(

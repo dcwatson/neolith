@@ -1,4 +1,4 @@
-from .base import Action, Request, Response, String, packet
+from .base import Action, Binary, Request, Response, String, packet
 
 
 @packet('login', requires_auth=False)
@@ -6,7 +6,7 @@ class LoginRequest (Request):
     username = String(doc='The username to log in with.', default='guest')
     password = String(doc='The password for the associated username.')
     nickname = String(required=True, doc='Nicknames must be unique on the server.')
-    pubkey = String(doc='Public key in OpenSSH encoding/format.')
+    pubkey = Binary(doc='Public key; DER-encoded SPKI.')
 
     async def handle(self, server, session):
         session.username = self.username

@@ -1,0 +1,76 @@
+<html>
+    <head>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900|Material+Icons" />
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vuetify/dist/vuetify.min.css" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+        <style>
+            .chat-line {}
+            .chat-line .timestamp { float: left; width: 50px; opacity: 0.5; font-family: monospace; }
+            .chat-line .nickname { float: left; width: 120px; text-align: right; font-weight: bold; }
+            .chat-line .text { margin-left: 180px; }
+            .chat-input { position: absolute; left: 20px; right: 20px; bottom: 0px; }
+        </style>
+    </head>
+    <body>
+        <div id="app">
+            <v-app dark>
+                <v-navigation-drawer v-model="showNav" app clipped fixed>
+                    <template v-if="authenticated">
+                        <v-list subheader dense>
+                            <v-subheader>Channels</v-subheader>
+                            <v-list-tile v-ripple v-for="channel in channels" :key="channel.name" @click="showChannel = channel.name">
+                                <v-list-tile-action>
+                                    <v-icon>chat</v-icon>
+                                </v-list-tile-action>
+                                <v-list-tile-content>
+                                    <v-list-tile-title v-text="channel.name"></v-list-tile-title>
+                                </v-list-tile-content>
+                                <v-list-tile-avatar v-if="channel.name == currentChannel.name">
+                                    <v-icon>check</v-icon>
+                                </v-list-tile-avatar>
+                            </v-list-tile>
+                        </v-list>
+                        <v-list subheader dense>
+                            <v-subheader>Users</v-subheader>
+                            <v-list-tile v-ripple v-for="user in users" :key="user.nickname" @click="">
+                                <v-list-tile-action>
+                                    <v-icon>person</v-icon>
+                                </v-list-tile-action>
+                                <v-list-tile-content>
+                                    <v-list-tile-title v-text="user.nickname"></v-list-tile-title>
+                                </v-list-tile-content>
+                            </v-list-tile>
+                        </v-list>
+                        <v-btn @click="logout">Log Out</v-btn>
+                    </template>
+                    <template v-else>
+                        <v-container fluid>
+                            <v-form>
+                                <v-text-field placeholder="Nickname" v-model="nickname"></v-text-field>
+                                <v-text-field placeholder="Username" v-model="username"></v-text-field>
+                                <v-text-field placeholder="Password" v-model="password" type="password"></v-text-field>
+                                <v-btn color="primary" class="ml-0" @click="login" :disabled="!ready">Log In</v-btn>
+                            </v-form>
+                        </v-container>
+                    </template>
+                </v-navigation-drawer>
+                <v-toolbar app fixed clipped-left>
+                    <v-toolbar-side-icon @click.stop="showNav = !showNav"></v-toolbar-side-icon>
+                    <v-toolbar-title v-text="serverName"></v-toolbar-title>
+                </v-toolbar>
+                <v-content>
+                    <v-container fluid>
+                        <v-snackbar v-model="showError" top>{% raw %}{{ lastError }}{% endraw %}<v-btn @click="showError = false">Close</v-btn></v-snackbar>
+                        <v-layout align-start justify-start column>
+                            <chat-line v-for="line in currentBuffer" :line="line"></chat-line>
+                        </v-layout>
+                        <v-text-field class="chat-input" solo placeholder="Chat..." v-model="chat" @keyup.enter="post"></v-text-field>
+                    </v-container>
+                </v-content>
+            </v-app>
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/vuetify/dist/vuetify.js"></script>
+        <script src="/static/client.js"></script>
+    </body>
+</html>

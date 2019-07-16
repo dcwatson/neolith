@@ -1,5 +1,6 @@
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
+from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect
 import uvicorn
 
@@ -7,6 +8,7 @@ from neolith import settings
 from neolith.protocol import (
     Channel, ChannelJoin, ChannelLeave, ClientPacket, ProtocolError, Sendable, Session, Transaction, UserJoined,
     UserLeft)
+from neolith.web import client, docs
 
 import asyncio
 import binascii
@@ -50,6 +52,13 @@ class NeolithServer:
         self.web.add_event_handler('shutdown', self.shutdown)
         self.web.add_route('/api', self.web_handler, methods=['GET', 'POST'])
         self.web.add_websocket_route('/ws', self.websocket_handler)
+        # Server static files
+        static_dir = os.path.join(os.path.dirname(__file__), 'static')
+        self.web.mount('/static', StaticFiles(directory=static_dir))
+        if settings.ENABLE_WEB_CLIENT:
+            self.web.add_route('/', client, methods=['GET'])
+        if settings.ENABLE_DOCS:
+            self.web.add_route('/docs', docs, methods=['GET'])
 
     async def startup(self):
         print('Starting binary protocol server on {}:{}'.format(settings.SOCKET_BIND, settings.SOCKET_PORT))
@@ -109,12 +118,13 @@ class NeolithServer:
         pass
 
     async def disconnected(self, session):
-        session.authenticated = False
-        for channel in self.channels:
-            if session in channel.sessions:
-                channel.remove(session)
-                await channel.send(ChannelLeave(channel=channel.name, user=session))
-        await self.broadcast(UserLeft(user=session))
+        if session.authenticated:
+            session.authenticated = False
+            for channel in self.channels:
+                if session in channel.sessions:
+                    channel.remove(session)
+                    await channel.send(ChannelLeave(channel=channel.name, user=session))
+            await self.broadcast(UserLeft(user=session))
         if session.ident in self.sessions:
             del self.sessions[session.ident]
 

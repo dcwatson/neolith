@@ -222,7 +222,7 @@ class Transaction (Sendable):
 
     @property
     def empty(self):
-        return self.txid is None and not self.packets
+        return self.txid is None and not self.packets and not self.error
 
     def response(self):
         return self.__class__(txid=self.txid)
