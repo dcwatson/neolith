@@ -2,13 +2,15 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocketDisconnect
+import dorm
 import uvicorn
 
 from neolith import settings
+from neolith.models import Account
 from neolith.protocol import (
     Channel, ChannelJoin, ChannelLeave, ClientPacket, ProtocolError, Sendable, Session, Transaction, UserJoined,
     UserLeft)
-from neolith.web import client, docs
+from neolith.web import client, docs, signup
 
 import asyncio
 import binascii
@@ -59,8 +61,11 @@ class NeolithServer:
             self.web.add_route('/', client, methods=['GET'])
         if settings.ENABLE_DOCS:
             self.web.add_route('/docs', docs, methods=['GET'])
+        if settings.ENABLE_SIGNUP:
+            self.web.add_route('/signup', signup, methods=['GET', 'POST'])
 
     async def startup(self):
+        dorm.setup(settings.DATABASE, models=[Account])
         print('Starting binary protocol server on {}:{}'.format(settings.SOCKET_BIND, settings.SOCKET_PORT))
         # Careful not to use the event loop until after uvicorn starts it, since it may swap in uvloop.
         self.loop = asyncio.get_event_loop()
@@ -78,6 +83,8 @@ class NeolithServer:
             return JSONResponse([tx.to_dict() for tx in await session.events()])
         elif request.method == 'POST':
             session.hostname = request.client.host
+            if not session.ident:
+                await self.connected(session)
             tx = Transaction(await request.json())
             response = await self.handle(session, tx, send=False)
             return JSONResponse(response.to_dict())
@@ -89,6 +96,8 @@ class NeolithServer:
 
         session = WebSocketSession(websocket)
         session.hostname = websocket.client.host
+
+        await self.connected(session)
 
         try:
             while True:
@@ -115,7 +124,8 @@ class NeolithServer:
         return response
 
     async def connected(self, session):
-        pass
+        session.ident = binascii.hexlify(os.urandom(16)).decode('ascii')
+        session.token = binascii.hexlify(os.urandom(16)).decode('ascii')
 
     async def disconnected(self, session):
         if session.authenticated:
@@ -141,8 +151,6 @@ class NeolithServer:
             raise ProtocolError('Session is already authenticated.')
         if self.get(nickname=session.nickname):
             raise ProtocolError('This nickname is already in use.')
-        session.ident = binascii.hexlify(os.urandom(16)).decode('ascii')
-        session.token = binascii.hexlify(os.urandom(16)).decode('ascii')
         # XXX: where should this go? maybe a new task to be executed next time through the loop?
         await self.broadcast(UserJoined(user=session))
         if settings.PUBLIC_CHANNEL and settings.AUTO_JOIN:

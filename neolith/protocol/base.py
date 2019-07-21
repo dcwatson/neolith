@@ -64,7 +64,7 @@ class DataType:
         }
 
 
-class Int (DataType):
+class Integer (DataType):
     python_type = int
 
 

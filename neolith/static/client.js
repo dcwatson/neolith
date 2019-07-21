@@ -42,6 +42,7 @@ var vm = new Vue({
         nickname: 'unnamed',
         username: 'guest',
         password: '',
+        passwordKey: null,
         sessionId: null,
         chat: '',
         channels: [],
@@ -52,7 +53,7 @@ var vm = new Vue({
         lastError: '',
         privateKey: null,
         publicKey: null,
-        ready: false
+        ready: true
     },
     computed: {
         currentChannel: function() {
@@ -61,14 +62,6 @@ var vm = new Vue({
         currentBuffer: function() {
             return this.buffer[this.showChannel] || [];
         }
-    },
-    created: function() {
-        var self = this;
-        window.crypto.subtle.generateKey(config, false, ["encrypt", "decrypt"]).then(function(keyPair) {
-            self.privateKey = keyPair.privateKey;
-            self.publicKey = keyPair.publicKey;
-            self.ready = true;
-        });
     },
     methods: {
         getChannel: function(name) {
@@ -89,23 +82,22 @@ var vm = new Vue({
         },
         login: function() {
             var self = this;
-            socket = new WebSocket('ws://' + window.location.host + '/ws');
-            socket.onmessage = function(event) {
-                self.handle(JSON.parse(event.data));
-            };
-            socket.onopen = function(event) {
-                window.crypto.subtle.exportKey("spki", self.publicKey).then(function(pubkey) {
+            var pwData = new TextEncoder('UTF-8').encode(this.password);
+            window.crypto.subtle.importKey("raw", pwData, {name: "PBKDF2"}, false, ["deriveBits", "deriveKey"]).then(function(pwKey) {
+                self.passwordKey = pwKey;
+                self.password = '';
+                socket = new WebSocket('ws://' + window.location.host + '/ws');
+                socket.onmessage = function(event) {
+                    self.handle(JSON.parse(event.data));
+                };
+                socket.onopen = function(event) {
                     self.write({
-                        'login': {
-                            'nickname': self.nickname,
-                            'username': self.username,
-                            'password': self.password,
-                            'pubkey': b64encode(pubkey)
+                        'challenge': {
+                            'username': self.username
                         }
                     });
-                    self.password = '';
-                });
-            };
+                };
+            });
         },
         logout: function() {
             this.write({
@@ -114,6 +106,7 @@ var vm = new Vue({
             socket.close(1000);
             socket = null;
             this.authenticated = false;
+            this.showChannel = null;
             this.channels = [];
             this.users = [];
             this.buffer = {};
@@ -145,14 +138,45 @@ var vm = new Vue({
             this.showError = true;
         },
         handlePacket: function(ident, data) {
+            var self = this;
             switch(ident) {
+                case 'challenge.response':
+                    this.sessionId = data.session_id;
+                    window.crypto.subtle.deriveBits({
+                        name: "PBKDF2",
+                        salt: b64decode(data.password_salt),
+                        iterations: data.iterations,
+                        hash: "SHA-256"
+                    }, self.passwordKey, 256).then(function(pwHash) {
+                        self.write({
+                            'login': {
+                                'session_id': self.sessionId,
+                                'password': b64encode(pwHash),
+                                'nickname': self.nickname
+                            }
+                        });
+                    });
+                    break;
                 case 'login.response':
                     this.serverName = data.server_name;
-                    this.sessionId = data.session_id;
-                    this.authenticated = true;
-                    this.write({
-                        'user.list': {},
-                        'channel.list': {}
+                    window.crypto.subtle.deriveBits({
+                        name: "PBKDF2",
+                        salt: b64decode(data.key_salt),
+                        iterations: data.iterations,
+                        hash: "SHA-256"
+                    }, self.passwordKey, 256).then(function(keyHash) {
+                        window.crypto.subtle.importKey("raw", keyHash, "AES-GCM", false, ["encrypt", "decrypt"]).then(function(aesKey) {
+                            window.crypto.subtle.decrypt({name: "AES-GCM", iv: b64decode(data.key_iv)}, aesKey, b64decode(data.private_key)).then(function(privateBytes) {
+                                window.crypto.subtle.importKey("pkcs8", privateBytes, config, false, ["decrypt"]).then(function(privateKey) {
+                                    self.privateKey = privateKey;
+                                    self.authenticated = true;
+                                    self.write({
+                                        'user.list': {},
+                                        'channel.list': {}
+                                    });
+                                });
+                            });
+                        });
                     });
                     break;
                 case 'user.listing':
@@ -252,9 +276,9 @@ var vm = new Vue({
                 var data = new TextEncoder('UTF-8').encode(this.chat);
                 var promises = [];
                 this.channelUsers[channel].forEach(function(u) {
-                    if (u.pubkey) {
+                    if (u.public_key) {
                         // TODO: cache imported public keys? message signing??
-                        promises.push(window.crypto.subtle.importKey("spki", b64decode(u.pubkey), algorithm, true, ['encrypt']).then(function(publicKey) {
+                        promises.push(window.crypto.subtle.importKey("spki", b64decode(u.public_key), algorithm, true, ['encrypt']).then(function(publicKey) {
                             return window.crypto.subtle.encrypt(algorithm, publicKey, data).then(function(buf) {
                                 return {
                                     session_id: u.ident,

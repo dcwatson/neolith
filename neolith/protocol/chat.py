@@ -17,7 +17,7 @@ class PostChat (Action):
         if channel.encrypted:
             messages = {e.session_id: e.data for e in self.encrypted}
             for s in channel.sessions:
-                if s.pubkey and s.ident in messages:
+                if s.public_key and s.ident in messages:
                     await s.send(ChatPosted(channel=self.channel,
                            encrypted=messages[s.ident], emote=self.emote, user=session))
         else:
@@ -70,8 +70,8 @@ class JoinChannel (Request):
 
     async def handle(self, server, session):
         channel = server.channels[self.channel]
-        channel.add(session)
-        await channel.send(ChannelJoin(channel=self.channel, user=session))
+        if channel.add(session):
+            await channel.send(ChannelJoin(channel=self.channel, user=session))
         # return ChannelUsers(channel=self.channel, users=list(channel.sessions))
 
 

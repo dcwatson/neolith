@@ -1,0 +1,141 @@
+<html>
+    <head>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900|Material+Icons" />
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vuetify/dist/vuetify.min.css" />
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+        <style>
+        </style>
+    </head>
+    <body>
+        <div id="app">
+            <v-app dark>
+                <v-content>
+                    <v-container fluid fill-height>
+                        <v-layout align-center justify-center>
+                            <v-flex xs12 sm8 md4>
+                                <v-form method="post" id="signupForm" v-model="valid">
+                                    <v-card class="elevation-12">
+                                        <v-toolbar>
+                                            <v-toolbar-title>{{ server_name }} Signup</v-toolbar-title>
+                                        </v-toolbar>
+                                        <v-card-text>
+                                            <v-text-field prepend-icon="person" name="username" label="Username" type="text" :rules="usernameRules"></v-text-field>
+                                            <v-text-field prepend-icon="lock" label="Password" type="password" :rules="passwordRules" v-model="password"></v-text-field>
+                                            <v-text-field prepend-icon="lock" label="Verify Password" type="password" :error-messages="verifyError" v-model="confirm"></v-text-field>
+                                            <v-text-field prepend-icon="email" name="email" label="Email Address" type="email" :rules="emailRules"></v-text-field>
+                                            <input name="passwordSalt" type="hidden" v-model="passwordSalt" />
+                                            <input name="iterations" type="hidden" v-model="iterations" />
+                                            <input name="password" type="hidden" v-model="hashedPassword" />
+                                            <input name="keyIV" type="hidden" v-model="keyIV" />
+                                            <input name="keySalt" type="hidden" v-model="keySalt" />
+                                            <input name="publicKey" type="hidden" v-model="publicKey" />
+                                            <input name="privateKey" type="hidden" v-model="privateKey" />
+                                        </v-card-text>
+                                        <v-card-actions>
+                                            <template v-if="generating">
+                                                <v-progress-circular indeterminate :size="20" :width="3" class="mx-2"></v-progress-circular>
+                                                Generating keys&hellip;
+                                            </template>
+                                            <v-spacer></v-spacer>
+                                            <v-btn color="primary" @click="submit" :disabled2="!valid">Signup</v-btn>
+                                        </v-card-actions>
+                                    </v-card>
+                                </v-form>
+                            </v-flex>
+                        </v-layout>
+                    </v-container>
+                </v-content>
+            </v-app>
+        </div>
+        <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
+        <script src="https://cdn.jsdelivr.net/npm/vuetify/dist/vuetify.js"></script>
+        <script>
+            function b64encode(buf) {
+                return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)));
+            }
+            function b64decode(s) {
+                // https://developer.mozilla.org/en-US/docs/Web/API/WindowBase64/Base64_encoding_and_decoding
+                var bs = atob(s), buf = new Uint8Array(bs.length);
+                Array.prototype.forEach.call(buf, function (el, idx, arr) { arr[idx] = bs.charCodeAt(idx); });
+                return buf;
+            }
+            var config = {
+                name: "RSA-OAEP",
+                modulusLength: 4096,
+                publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
+                hash: "SHA-256"
+            };
+            var vm = new Vue({
+                el: '#app',
+                data: {
+                    valid: true,
+                    generating: false,
+                    password: '',
+                    confirm: '',
+                    passwordSalt: '',
+                    keySalt: '',
+                    keyIV: '',
+                    iterations: 100000,
+                    hashedPassword: '',
+                    publicKey: '',
+                    privateKey: '',
+                    usernameRules: [
+                        v => !!v || 'Username is required.',
+                    ],
+                    passwordRules: [
+                        v => !!v || 'Password is required.',
+                    ],
+                    emailRules: [
+                        v => !!v || 'Email address is required.',
+                        v => /.+@.+/.test(v) || 'Please enter a valid email address.'
+                    ]
+                },
+                computed: {
+                    verifyError: function() {
+                        return (this.confirm === this.password) ? '' : 'Passwords do not match.';
+                    }
+                },
+                methods: {
+                    submit: function() {
+                        this.generating = true;
+                        var self = this;
+                        var passwordSalt = window.crypto.getRandomValues(new Uint8Array(32));
+                        var keySalt = window.crypto.getRandomValues(new Uint8Array(32));
+                        var keyIV = window.crypto.getRandomValues(new Uint8Array(12));
+                        var pwBytes = new TextEncoder('UTF-8').encode(this.password);
+                        window.crypto.subtle.importKey("raw", pwBytes, {name: "PBKDF2"}, false, ["deriveBits", "deriveKey"]).then(function(pwKey) {
+                            // Hash the password with passwordSalt
+                            window.crypto.subtle.deriveBits({name: "PBKDF2", salt: passwordSalt, iterations: self.iterations, hash: "SHA-256"}, pwKey, 256).then(function(pwHash) {
+                                // Hash the password with keySalt, for encrypting the private key
+                                window.crypto.subtle.deriveBits({name: "PBKDF2", salt: keySalt, iterations: self.iterations, hash: "SHA-256"}, pwKey, 256).then(function(keyHash) {
+                                    // Create an AES-CBC key using the PBKDF2-derived password bytes.
+                                    window.crypto.subtle.importKey("raw", keyHash, "AES-GCM", false, ["encrypt", "decrypt"]).then(function(aesKey) {
+                                        // Finally, generate a new RSA keypair, export them, and encrypt the private key with the AES-CBC key.
+                                        window.crypto.subtle.generateKey(config, true, ["encrypt", "decrypt"]).then(function(keyPair) {
+                                            var p1 = window.crypto.subtle.exportKey("spki", keyPair.publicKey).then(function(publicBytes) {
+                                                self.publicKey = b64encode(publicBytes);
+                                            });
+                                            var p2 = window.crypto.subtle.exportKey("pkcs8", keyPair.privateKey).then(function(privateBytes) {
+                                                return window.crypto.subtle.encrypt({name: "AES-GCM", iv: keyIV}, aesKey, privateBytes).then(function(encBytes) {
+                                                    self.generating = false;
+                                                    self.passwordSalt = b64encode(passwordSalt);
+                                                    self.keySalt = b64encode(keySalt);
+                                                    self.keyIV = b64encode(keyIV);
+                                                    self.hashedPassword = b64encode(pwHash);
+                                                    self.privateKey = b64encode(encBytes);
+                                                });
+                                            });
+                                            Promise.all([p1, p2]).then(function() {
+                                                signupForm.submit();
+                                            });
+                                        });
+                                    });
+                                });
+                            });
+                        });
+                    }
+                }
+            });
+        </script>
+    </body>
+</html>

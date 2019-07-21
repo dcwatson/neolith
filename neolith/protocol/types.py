@@ -10,10 +10,11 @@ class Session (Container):
     username = String(doc='The username of the session.')
     hostname = String(doc='The hostname for the session, may be fake.', default='unknown')
     nickname = String(doc='The nickname for the session, must be unique across all sessions.', default='unnamed')
-    pubkey = Binary(doc='Public key; DER-encoded SPKI.')
+    public_key = Binary(doc='Public key; DER-encoded SPKI.')
 
     token = None
     authenticated = False
+    account = None
 
     def __str__(self):
         return '{}!{}@{}'.format(self.nickname, self.username, self.hostname)
@@ -54,7 +55,10 @@ class Channel (Container):
         self.invitations.add(session.ident)
 
     def add(self, session):
+        if session in self.sessions:
+            return False
         self.sessions.add(session)
+        return True
 
     def remove(self, session):
         self.sessions.discard(session)
