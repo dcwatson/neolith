@@ -14,7 +14,8 @@ class LoginChallenge (Request):
         session.username = self.username
         session.account = account
         return ChallengeResponse(
-            session_id=session.ident,
+            server_name=server.name,
+            token=session.token,
             iterations=account.iterations,
             password_salt=account.password_salt
         )
@@ -22,14 +23,14 @@ class LoginChallenge (Request):
 
 @packet('challenge.response')
 class ChallengeResponse (Response):
-    session_id = String(doc='Public session ID used to identify users on the server.')
+    server_name = String(doc='Name of the server.')
+    token = String(doc='Private authentication token for your session, for use with the web API.')
     iterations = Integer(doc='Number of iterations to use when hashing the password (PBKDF2).')
     password_salt = Binary(doc='The salt to use when hashing the password (PBKDF2) for login.')
 
 
 @packet('login', requires_auth=False)
 class LoginRequest (Request):
-    session_id = String(doc='Public session ID used to identify users on the server.')
     password = Binary(doc='The hashed password (PBKDF2) for the associated username.')
     nickname = String(required=True, doc='Nicknames must be unique on the server.')
 
@@ -41,8 +42,6 @@ class LoginRequest (Request):
         await server.authenticate(session)
         return LoginResponse(
             session_id=session.ident,
-            token=session.token,
-            server_name=server.name,
             private_key=session.account.private_key,
             iterations=session.account.iterations,
             key_salt=session.account.key_salt,
@@ -53,8 +52,6 @@ class LoginRequest (Request):
 @packet('login.response')
 class LoginResponse (Response):
     session_id = String(doc='Public session ID used to identify users on the server.')
-    token = String(doc='Private authentication token for your session, for use with the web API.')
-    server_name = String(doc='Name of the server.')
     private_key = Binary(doc='The encrypted private key for the account.')
     iterations = Integer(doc='Number of iterations to use when hashing the password (PBKDF2).')
     key_salt = Binary(doc='The salt used when hashing the password to generate the AES-GCM key for the private key.')

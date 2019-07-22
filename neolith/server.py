@@ -124,8 +124,10 @@ class NeolithServer:
         return response
 
     async def connected(self, session):
+        print('New connection - {}'.format(session))
         session.ident = binascii.hexlify(os.urandom(16)).decode('ascii')
         session.token = binascii.hexlify(os.urandom(16)).decode('ascii')
+        self.sessions[session.ident] = session
 
     async def disconnected(self, session):
         if session.authenticated:
@@ -147,9 +149,9 @@ class NeolithServer:
                 await session.send(message)
 
     async def authenticate(self, session):
-        if session.ident in self.sessions:
+        if session.authenticated:
             raise ProtocolError('Session is already authenticated.')
-        if self.get(nickname=session.nickname):
+        if self.get(nickname=session.nickname, authenticated=True):
             raise ProtocolError('This nickname is already in use.')
         # XXX: where should this go? maybe a new task to be executed next time through the loop?
         await self.broadcast(UserJoined(user=session))
@@ -160,7 +162,6 @@ class NeolithServer:
         # Authenticate the session after sending the joins, so we don't send joins before the login response.
         print('Authenticated {}'.format(session))
         session.authenticated = True
-        self.sessions[session.ident] = session
         return session.ident
 
     def find(self, **kwargs):

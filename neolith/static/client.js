@@ -141,7 +141,7 @@ var vm = new Vue({
             var self = this;
             switch(ident) {
                 case 'challenge.response':
-                    this.sessionId = data.session_id;
+                    this.serverName = data.server_name;
                     window.crypto.subtle.deriveBits({
                         name: "PBKDF2",
                         salt: b64decode(data.password_salt),
@@ -150,7 +150,6 @@ var vm = new Vue({
                     }, self.passwordKey, 256).then(function(pwHash) {
                         self.write({
                             'login': {
-                                'session_id': self.sessionId,
                                 'password': b64encode(pwHash),
                                 'nickname': self.nickname
                             }
@@ -158,7 +157,7 @@ var vm = new Vue({
                     });
                     break;
                 case 'login.response':
-                    this.serverName = data.server_name;
+                    this.sessionId = data.session_id;
                     window.crypto.subtle.deriveBits({
                         name: "PBKDF2",
                         salt: b64decode(data.key_salt),
