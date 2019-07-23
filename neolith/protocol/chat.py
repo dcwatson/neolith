@@ -70,9 +70,10 @@ class JoinChannel (Request):
 
     async def handle(self, server, session):
         channel = server.channels[self.channel]
-        if channel.add(session):
+        if session not in channel.sessions:
             await channel.send(ChannelJoin(channel=self.channel, user=session))
-        # return ChannelUsers(channel=self.channel, users=list(channel.sessions))
+        channel.add(session)
+        return ChannelUsers(channel=self.channel, users=list(channel.sessions))
 
 
 @packet('channel.leave')

@@ -193,24 +193,9 @@ var vm = new Vue({
                     this.users.splice(idx, 1);
                     break;
                 case 'channel.joined':
-                    var channel = this.getChannel(data.channel);
-                    if (data.user.ident == this.sessionId) {
-                        // This was us joining a channel, request the userlist for it.
-                        this.write({
-                            'channel.users': {
-                                'channel': data.channel
-                            }
-                        });
-                        this.showChannel = data.channel;
-                    }
-                    else {
-                        if (!(data.channel in this.channelUsers)) {
-                            this.$set(this.channelUsers, data.channel, []);
-                        }
-                        var user = this.getUser(data.user.ident);
-                        if (user) {
-                            this.channelUsers[data.channel].push(user);
-                        }
+                    var user = this.getUser(data.user.ident);
+                    if (user) {
+                        this.channelUsers[data.channel].push(user);
                     }
                     break;
                 case 'channel.left':
@@ -219,19 +204,16 @@ var vm = new Vue({
                     this.channelUsers[data.channel].splice(idx, 1);
                     break;
                 case 'channel.userlist':
-                    if (!(data.channel in this.channelUsers)) {
-                        this.$set(this.channelUsers, data.channel, []);
-                    }
-                    var self = this;
+                    this.$set(this.channelUsers, data.channel, []);
                     data.users.forEach(function(u) {
                         var user = self.getUser(u.ident);
                         self.channelUsers[data.channel].push(user);
                     });
+                    this.showChannel = data.channel;
                     break;
                 case 'channel.posted':
                     var channel = this.getChannel(data.channel);
                     var user = this.getUser(data.user.ident);
-                    var self = this;
                     if (channel && user) {
                         if (!(channel.name in this.buffer)) {
                             this.$set(this.buffer, channel.name, []);
