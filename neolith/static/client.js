@@ -1,14 +1,4 @@
 var socket = null;
-var algorithm = {
-    name: "RSA-OAEP",
-    hash: "SHA-256"
-};
-var config = {
-    name: "RSA-OAEP",
-    modulusLength: 4096,
-    publicExponent: new Uint8Array([0x01, 0x00, 0x01]),
-    hash: "SHA-256"
-};
 
 function b64encode(buf) {
     return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)));
@@ -19,6 +9,13 @@ function b64decode(s) {
     var bs = atob(s), buf = new Uint8Array(bs.length);
     Array.prototype.forEach.call(buf, function (el, idx, arr) { arr[idx] = bs.charCodeAt(idx); });
     return buf;
+}
+
+async function decryptKey(keyType, spec, pwKey, usage) {
+    var keyHash = await window.crypto.subtle.deriveBits({name: "PBKDF2", salt: b64decode(spec.salt), iterations: spec.iterations, hash: "SHA-256"}, pwKey, 256);
+    var aesKey = await window.crypto.subtle.importKey("raw", keyHash, "AES-GCM", false, ["decrypt"]);
+    var privateBytes = await window.crypto.subtle.decrypt({name: "AES-GCM", iv: b64decode(spec.nonce), tagLength: 128}, aesKey, b64decode(spec.data));
+    return await window.crypto.subtle.importKey("pkcs8", privateBytes, {name: keyType, namedCurve: "P-384"}, false, usage);
 }
 
 Vue.component('chat-line', {
@@ -51,8 +48,8 @@ var vm = new Vue({
         buffer: {},
         showError: false,
         lastError: '',
-        privateKey: null,
-        publicKey: null,
+        ecdh: null,
+        ecdsa: null,
         ready: true
     },
     computed: {
@@ -83,10 +80,10 @@ var vm = new Vue({
         login: function() {
             var self = this;
             var pwData = new TextEncoder('UTF-8').encode(this.password);
-            window.crypto.subtle.importKey("raw", pwData, {name: "PBKDF2"}, false, ["deriveBits", "deriveKey"]).then(function(pwKey) {
+            window.crypto.subtle.importKey("raw", pwData, {name: "PBKDF2"}, false, ["deriveBits"]).then(function(pwKey) {
                 self.passwordKey = pwKey;
                 self.password = '';
-                socket = new WebSocket('ws://' + window.location.host + '/ws');
+                socket = new WebSocket(window.location.protocol.replace('http', 'ws') + '//' + window.location.host + '/ws');
                 socket.onmessage = function(event) {
                     self.handle(JSON.parse(event.data));
                 };
@@ -137,45 +134,28 @@ var vm = new Vue({
             this.lastError = error;
             this.showError = true;
         },
-        handlePacket: function(ident, data) {
+        handlePacket: async function(ident, data) {
             var self = this;
             switch(ident) {
                 case 'challenge.response':
                     this.serverName = data.server_name;
-                    window.crypto.subtle.deriveBits({
-                        name: "PBKDF2",
-                        salt: b64decode(data.password_salt),
-                        iterations: data.iterations,
-                        hash: "SHA-256"
-                    }, self.passwordKey, 256).then(function(pwHash) {
-                        self.write({
-                            'login': {
-                                'password': b64encode(pwHash),
-                                'nickname': self.nickname
-                            }
-                        });
+                    // TODO: check password_spec.algorithm; assuming pbkdf2_sha256 for now.
+                    var pwHash = await window.crypto.subtle.deriveBits({name: "PBKDF2", salt: b64decode(data.password_spec.salt), iterations: data.password_spec.iterations, hash: "SHA-256"}, this.passwordKey, 256);
+                    this.write({
+                        'login': {
+                            'password': b64encode(pwHash),
+                            'nickname': self.nickname
+                        }
                     });
                     break;
                 case 'login.response':
                     this.sessionId = data.session_id;
-                    window.crypto.subtle.deriveBits({
-                        name: "PBKDF2",
-                        salt: b64decode(data.key_salt),
-                        iterations: data.iterations,
-                        hash: "SHA-256"
-                    }, self.passwordKey, 256).then(function(keyHash) {
-                        window.crypto.subtle.importKey("raw", keyHash, "AES-GCM", false, ["encrypt", "decrypt"]).then(function(aesKey) {
-                            window.crypto.subtle.decrypt({name: "AES-GCM", iv: b64decode(data.key_iv)}, aesKey, b64decode(data.private_key)).then(function(privateBytes) {
-                                window.crypto.subtle.importKey("pkcs8", privateBytes, config, false, ["decrypt"]).then(function(privateKey) {
-                                    self.privateKey = privateKey;
-                                    self.authenticated = true;
-                                    self.write({
-                                        'user.list': {},
-                                        'channel.list': {}
-                                    });
-                                });
-                            });
-                        });
+                    this.ecdh = await decryptKey("ECDH", data.ecdh, this.passwordKey, ["deriveBits"]);
+                    this.ecdsa = await decryptKey("ECDSA", data.ecdsa, this.passwordKey, ["sign"]);
+                    this.authenticated = true;
+                    this.write({
+                        'user.list': {},
+                        'channel.list': {}
                     });
                     break;
                 case 'user.listing':

@@ -1,4 +1,5 @@
 import base64
+import json
 import re
 
 
@@ -99,7 +100,7 @@ class Object (DataType):
         return value.prepare() if value is not None else None
 
     def unpack(self, value):
-        return self.python_type.unpack(value)
+        return self.python_type.unpack(value) if value is not None else None
 
 
 class List (DataType):
@@ -179,6 +180,15 @@ class Container:
                 if isinstance(field, DataType):
                     description.update(field.describe())
         return description
+
+    @classmethod
+    def to_sql(cls, value):
+        assert isinstance(value, cls)
+        return json.dumps(value.prepare())
+
+    @classmethod
+    def to_python(cls, value):
+        return cls.unpack(json.loads(value))
 
 
 class Sendable:

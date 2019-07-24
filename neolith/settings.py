@@ -1,15 +1,10 @@
 from starlette.config import Config
-from starlette.datastructures import Secret
-
-import binascii
-import os
 
 
 config = Config(".env")
 
 
 DEBUG = config('DEBUG', cast=bool, default=False)
-SECRET_KEY = config('SECRET_KEY', cast=Secret, default=binascii.hexlify(os.urandom(16)))
 DATABASE = config('DATABASE', default='neolith.db')
 
 SOCKET_BIND = config('SOCKET_BIND', default='0.0.0.0')

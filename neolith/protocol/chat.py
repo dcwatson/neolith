@@ -8,20 +8,21 @@ from .types import Channel, EncryptedMessage, Session
 class PostChat (Action):
     channel = String(doc='The channel name to post to.', required=True)
     chat = String(doc='The chat to post, if the channel is not encrypted.')
-    encrypted = List(EncryptedMessage,
-                     doc='A list of encrypted messages, one for each user in the chat, encrypted for that user.')
+    encrypted = Object(EncryptedMessage,
+        doc='The encrypted (and optionally signed) message, if the channel is encrypted.')
     emote = Boolean(default=False, doc='Whether the chat is an emote (action) or not.')
 
     async def handle(self, server, session):
         channel = server.channels[self.channel]
-        if channel.encrypted:
-            messages = {e.session_id: e.data for e in self.encrypted}
-            for s in channel.sessions:
-                if s.public_key and s.ident in messages:
-                    await s.send(ChatPosted(channel=self.channel,
-                           encrypted=messages[s.ident], emote=self.emote, user=session))
-        else:
-            await channel.send(ChatPosted(channel=self.channel, chat=self.chat, emote=self.emote, user=session))
+        if session not in channel.sessions:
+            raise ProtocolError('You are not in this channel.')
+        await channel.send(ChatPosted(
+            channel=self.channel,
+            chat=self.chat,
+            encrypted=self.encrypted,
+            emote=self.emote,
+            user=session
+        ))
 
 
 @packet('channel.list')
@@ -37,16 +38,23 @@ class GetChannelUsers (Request):
 
     async def handle(self, server, session):
         channel = server.channels[self.channel]
+        if session not in channel.sessions:
+            raise ProtocolError('You are not in this channel.')
         return ChannelUsers(channel=self.channel, users=list(channel.sessions))
 
 
 @packet('channel.create')
 class CreateChannel (Request):
     channel = Object(Channel, doc='The channel to create.', required=True)
+    key_hash = Binary(doc='SHA-256 hash of server key + channel name + channel key, if the channel is encrypted.')
 
     async def handle(self, server, session):
         if self.channel.name in server.channels:
             raise ProtocolError('A channel named "{}" already exists.'.format(self.channel.name))
+        if self.channel.encrypted:
+            if not self.channel.key_hash:
+                raise ProtocolError('You must specify a channel key when creating an encrypted channel.')
+            self.channel.key_hash = self.key_hash
         server.channels.add(self.channel)
         # TODO: auto-join?
         await server.broadcast(ChannelCreated(channel=self.channel))
@@ -67,12 +75,15 @@ class DeclineInvitation (Request):
 @packet('channel.join')
 class JoinChannel (Request):
     channel = String(doc='The channel name you wish to join.', required=True)
+    key_hash = Binary(doc='SHA-256 hash of the channel key, if the channel is encrypted.')
 
     async def handle(self, server, session):
         channel = server.channels[self.channel]
         if session not in channel.sessions:
+            if channel.encrypted and channel.key_hash != self.key_hash:
+                raise ProtocolError('Incorrect channel key.')
             await channel.send(ChannelJoin(channel=self.channel, user=session))
-        channel.add(session)
+            channel.add(session)
         return ChannelUsers(channel=self.channel, users=list(channel.sessions))
 
 
@@ -82,8 +93,9 @@ class LeaveChannel (Request):
 
     async def handle(self, server, session):
         channel = server.channels[self.channel]
-        channel.remove(session)
-        await channel.send(ChannelLeave(channel=self.channel, user=session))
+        if session in channel.sessions:
+            channel.remove(session)
+            await channel.send(ChannelLeave(channel=self.channel, user=session))
 
 
 @packet('channel.modify')
@@ -99,7 +111,8 @@ class ModifyChannel (Request):
 class ChatPosted (Notification):
     channel = String(doc='The channel name this chat was posted to.', required=True)
     chat = String(doc='The posted chat, if the channel is not encrypted.')
-    encrypted = Binary(doc='The chat, encrypted for your session, if the channel is encrypted.')
+    encrypted = Object(EncryptedMessage,
+        doc='The encrypted (and optionally signed) message, if the channel is encrypted.')
     emote = Boolean(doc='Whether the posted chat is an emote (action) or not.')
     user = Object(Session, doc='The user who posted the chat.')
 

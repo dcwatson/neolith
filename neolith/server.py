@@ -46,6 +46,7 @@ class NeolithServer:
         self.server = None
         self.sessions = {}
         self.channels = Channels()
+        self.secret_key = os.urandom(32)
         self.name = settings.SERVER_NAME
         if settings.PUBLIC_CHANNEL:
             self.channels.add(Channel(name=settings.PUBLIC_CHANNEL, topic='', protected=True, encrypted=False))

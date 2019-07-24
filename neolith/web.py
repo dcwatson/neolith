@@ -1,9 +1,9 @@
-from starlette.responses import RedirectResponse
+from starlette.responses import JSONResponse
 from starlette.templating import Jinja2Templates
 
 from neolith import settings
 from neolith.models import Account
-from neolith.protocol import registered_packets, types
+from neolith.protocol import KeyPair, PasswordSpec, registered_packets, types
 
 import base64
 import os
@@ -38,21 +38,22 @@ async def client(request):
 
 async def signup(request):
     if request.method == 'POST':
-        form = await request.form()
-        if not await Account.query(username=form['username']).count():
-            await Account.insert(
-                username=form['username'],
-                password=base64.b64decode(form['password']),
-                email=form['email'],
-                password_salt=base64.b64decode(form['passwordSalt']),
-                iterations=int(form['iterations']),
-                key_salt=base64.b64decode(form['keySalt']),
-                key_iv=base64.b64decode(form['keyIV']),
-                public_key=base64.b64decode(form['publicKey']),
-                private_key=base64.b64decode(form['privateKey']),
-            )
-            return RedirectResponse(url='/')
-        return RedirectResponse(url='/signup')
+        data = await request.json()
+        if await Account.query(username=data['username']).count():
+            return JSONResponse({'error': 'This username is already taken.'}, status_code=400)
+        if await Account.query(email=data['email']).count():
+            return JSONResponse({'error': 'This email address is already used by another account.'}, status_code=400)
+        await Account.insert(
+            username=data['username'],
+            email=data['email'],
+            password_spec=PasswordSpec.unpack(data['password_spec']),
+            password=base64.b64decode(data['password']),
+            ecdh=KeyPair.unpack(data['ecdh']),
+            ecdsa=KeyPair.unpack(data['ecdsa']),
+            active=True,
+            verified=False
+        )
+        return JSONResponse({'redirect': '/'})
     return templates.TemplateResponse('signup.html', {
         'request': request,
         'server_name': settings.SERVER_NAME,
