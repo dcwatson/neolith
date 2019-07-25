@@ -38,23 +38,23 @@ class LoginRequest (Request):
         if session.account is None or session.account.password != self.password:
             raise ProtocolError('Login failed.')
         session.nickname = self.nickname
-        session.public_ecdh = session.account.ecdh.public_key
-        session.public_ecdsa = session.account.ecdsa.public_key
+        session.x25519 = session.account.x25519.public_key
+        session.ed25519 = session.account.ed25519.public_key
         await server.authenticate(session)
         return LoginResponse(
             session_id=session.ident,
             server_key=server.secret_key,
-            ecdh=session.account.ecdh,
-            ecdsa=session.account.ecdsa
+            x25519=session.account.x25519,
+            ed25519=session.account.ed25519
         )
 
 
 @packet('login.response')
 class LoginResponse (Response):
     session_id = String(doc='Public session ID used to identify users on the server.')
-    server_key = Binary(doc='Random key for this server, used in hashing operations.')
-    ecdh = Object(KeyPair, doc='The ECDH keys for the account.')
-    ecdsa = Object(KeyPair, doc='The ECDSA keys for the account.')
+    server_key = Binary(doc='Random key for this server, used to salt channel keys.')
+    x25519 = Object(KeyPair, doc='The x25519 keys for the account.')
+    ed25519 = Object(KeyPair, doc='The ed25519 keys for the account.')
 
 
 @packet('logout', requires_auth=False)

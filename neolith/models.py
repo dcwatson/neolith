@@ -15,8 +15,8 @@ class Account (dorm.AsyncTable):
         'email': dorm.Email(unique=True),
         'password_spec': dorm.Column("text", to_sql=PasswordSpec.to_sql, to_python=PasswordSpec.to_python),
         'password': Binary,
-        'ecdh': KeyPairColumn,
-        'ecdsa': KeyPairColumn,
+        'x25519': KeyPairColumn,
+        'ed25519': KeyPairColumn,
         'active': dorm.Boolean(default=0),
         'verified': dorm.Boolean(default=0),
     }

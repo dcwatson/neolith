@@ -1,21 +1,23 @@
 <html>
     <head>
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900|Material+Icons" />
-        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vuetify/dist/vuetify.min.css" />
+        <link href="https://fonts.googleapis.com/css?family=Material+Icons" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css?family=Roboto:100,300,400,500,700,900" rel="stylesheet" />
+        <link href="https://cdn.jsdelivr.net/npm/@mdi/font@latest/css/materialdesignicons.min.css" rel="stylesheet" />
+        <link href="https://cdn.jsdelivr.net/npm/vuetify/dist/vuetify.min.css" rel="stylesheet" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
         <style>
         </style>
     </head>
     <body>
         <div id="app">
-            <v-app dark>
+            <v-app>
                 <v-content>
                     <v-container fluid fill-height>
                         <v-layout align-center justify-center>
                             <v-flex xs12 sm8 md4>
                                 <v-form method="post" id="signupForm" v-model="valid">
                                     <v-card class="elevation-12">
-                                        <v-toolbar>
+                                        <v-toolbar color="primary" flat>
                                             <v-toolbar-title>{{ server_name }} Signup</v-toolbar-title>
                                         </v-toolbar>
                                         <v-card-text>
@@ -30,7 +32,7 @@
                                                 {% raw %}{{ status }}{% endraw %}&hellip;
                                             </template>
                                             <v-spacer></v-spacer>
-                                            <v-btn color="primary" @click="submit" :disabled2="!valid">Signup</v-btn>
+                                            <v-btn color="primary" @click="submit" :disabled="!valid">Signup</v-btn>
                                         </v-card-actions>
                                     </v-card>
                                 </v-form>
@@ -40,6 +42,7 @@
                 </v-content>
             </v-app>
         </div>
+        <script src="https://cdn.jsdelivr.net/npm/tweetnacl/nacl-fast.min.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/vue/dist/vue.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/vuetify/dist/vuetify.js"></script>
         <script src="https://cdn.jsdelivr.net/npm/vue-resource@1.5.1"></script>
@@ -53,34 +56,34 @@
                 Array.prototype.forEach.call(buf, function (el, idx, arr) { arr[idx] = bs.charCodeAt(idx); });
                 return buf;
             }
+            async function encryptKeys(keyPair, passwordKey, iterations) {
+                var salt = window.crypto.getRandomValues(new Uint8Array(32));
+                var nonce = window.crypto.getRandomValues(new Uint8Array(12));
+                var keyMaterial = await window.crypto.subtle.deriveBits({name: "PBKDF2", salt: salt, iterations: iterations, hash: "SHA-256"}, passwordKey, 256);
+                var aesKey = await window.crypto.subtle.importKey("raw", keyMaterial, "AES-GCM", false, ["encrypt"]);
+                var encrypted = await window.crypto.subtle.encrypt({name: "AES-GCM", iv: nonce, tagLength: 128}, aesKey, keyPair.secretKey);
+                return {
+                    key_spec: {
+                        algorithm: "pbkdf2_sha256",
+                        salt: b64encode(salt),
+                        iterations: iterations,
+                    },
+                    nonce: b64encode(nonce),
+                    data: b64encode(encrypted),
+                    public_key: b64encode(keyPair.publicKey)
+                };
+            }
             async function generateKeys(username, password, email) {
                 var pwBytes = new TextEncoder('UTF-8').encode(password);
                 var iterations = 200000;
                 var passwordSalt = window.crypto.getRandomValues(new Uint8Array(32));
-                // ECDH
-                var ecdhSalt = window.crypto.getRandomValues(new Uint8Array(32));
-                var ecdhNonce = window.crypto.getRandomValues(new Uint8Array(12));
-                var ecdhKeys = await window.crypto.subtle.generateKey({name: "ECDH", namedCurve: "P-384"}, true, ["deriveKey", "deriveBits"]);
-                var ecdhPublic = await window.crypto.subtle.exportKey("raw", ecdhKeys.publicKey);
-                var ecdhPrivate = await window.crypto.subtle.exportKey("pkcs8", ecdhKeys.privateKey);
-                // ECDSA
-                var ecdsaSalt = window.crypto.getRandomValues(new Uint8Array(32));
-                var ecdsaNonce = window.crypto.getRandomValues(new Uint8Array(12));
-                var ecdsaKeys = await window.crypto.subtle.generateKey({name: "ECDSA", namedCurve: "P-384"}, true, ["sign", "verify"]);
-                var ecdsaPublic = await window.crypto.subtle.exportKey("raw", ecdsaKeys.publicKey);
-                var ecdsaPrivate = await window.crypto.subtle.exportKey("pkcs8", ecdsaKeys.privateKey);
+                // Generate x25519 and ed25519 keys for key exchange and signing.
+                var x25519keys = nacl.box.keyPair();
+                var ed25519keys = nacl.sign.keyPair();
                 // Import the password as a key, so we can run it through PBKDF2 to generate an AES-GCM key.
                 var pwKey = await window.crypto.subtle.importKey("raw", pwBytes, {name: "PBKDF2"}, false, ["deriveBits"]);
                 // Generate a PBKDF2 digest of the password. This will be what the server stores, and what clients send at login.
                 var pwHash = await window.crypto.subtle.deriveBits({name: "PBKDF2", salt: passwordSalt, iterations: iterations, hash: "SHA-256"}, pwKey, 256);
-                // Generate a separate PBKDF2 digest of the password with a different salt. This will be used as an AES-GCM key for encrypting the ECDH private key.
-                var ecdhHash = await window.crypto.subtle.deriveBits({name: "PBKDF2", salt: ecdhSalt, iterations: iterations, hash: "SHA-256"}, pwKey, 256);
-                var ecdhAesKey = await window.crypto.subtle.importKey("raw", ecdhHash, "AES-GCM", false, ["encrypt"]);
-                var ecdhPrivateEncrypted = await window.crypto.subtle.encrypt({name: "AES-GCM", iv: ecdhNonce, tagLength: 128}, ecdhAesKey, ecdhPrivate);
-                // Generate a separate PBKDF2 digest of the password with a different salt. This will be used as an AES-GCM key for encrypting the ECDSA private key.
-                var ecdsaHash = await window.crypto.subtle.deriveBits({name: "PBKDF2", salt: ecdsaSalt, iterations: iterations, hash: "SHA-256"}, pwKey, 256);
-                var ecdsaAesKey = await window.crypto.subtle.importKey("raw", ecdsaHash, "AES-GCM", false, ["encrypt"]);
-                var ecdsaPrivateEncrypted = await window.crypto.subtle.encrypt({name: "AES-GCM", iv: ecdsaNonce, tagLength: 128}, ecdsaAesKey, ecdsaPrivate);
                 return {
                     username: username.toLowerCase(),
                     email: email.toLowerCase(),
@@ -90,24 +93,14 @@
                         salt: b64encode(passwordSalt),
                         iterations: iterations
                     },
-                    ecdh: {
-                        salt: b64encode(ecdhSalt),
-                        iterations: iterations,
-                        nonce: b64encode(ecdhNonce),
-                        data: b64encode(ecdhPrivateEncrypted),
-                        public_key: b64encode(ecdhPublic)
-                    },
-                    ecdsa: {
-                        salt: b64encode(ecdsaSalt),
-                        iterations: iterations,
-                        nonce: b64encode(ecdsaNonce),
-                        data: b64encode(ecdsaPrivateEncrypted),
-                        public_key: b64encode(ecdsaPublic)
-                    }
+                    x25519: await encryptKeys(x25519keys, pwKey, iterations),
+                    ed25519: await encryptKeys(ed25519keys, pwKey, iterations)
                 };
             }
             var vm = new Vue({
                 el: '#app',
+                vuetify: new Vuetify({
+                }),
                 data: {
                     valid: true,
                     status: null,
@@ -125,6 +118,9 @@
                         v => !!v || 'Email address is required.',
                         v => /.+@.+/.test(v) || 'Please enter a valid email address.'
                     ]
+                },
+                created: function() {
+                    this.$vuetify.theme.dark = true;
                 },
                 computed: {
                     verifyError: function() {

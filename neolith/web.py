@@ -48,8 +48,8 @@ async def signup(request):
             email=data['email'],
             password_spec=PasswordSpec.unpack(data['password_spec']),
             password=base64.b64decode(data['password']),
-            ecdh=KeyPair.unpack(data['ecdh']),
-            ecdsa=KeyPair.unpack(data['ecdsa']),
+            x25519=KeyPair.unpack(data['x25519']),
+            ed25519=KeyPair.unpack(data['ed25519']),
             active=True,
             verified=False
         )

@@ -52,7 +52,7 @@ class CreateChannel (Request):
         if self.channel.name in server.channels:
             raise ProtocolError('A channel named "{}" already exists.'.format(self.channel.name))
         if self.channel.encrypted:
-            if not self.channel.key_hash:
+            if not self.key_hash:
                 raise ProtocolError('You must specify a channel key when creating an encrypted channel.')
             self.channel.key_hash = self.key_hash
         server.channels.add(self.channel)

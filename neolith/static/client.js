@@ -11,11 +11,24 @@ function b64decode(s) {
     return buf;
 }
 
-async function decryptKey(keyType, spec, pwKey, usage) {
-    var keyHash = await window.crypto.subtle.deriveBits({name: "PBKDF2", salt: b64decode(spec.salt), iterations: spec.iterations, hash: "SHA-256"}, pwKey, 256);
-    var aesKey = await window.crypto.subtle.importKey("raw", keyHash, "AES-GCM", false, ["decrypt"]);
-    var privateBytes = await window.crypto.subtle.decrypt({name: "AES-GCM", iv: b64decode(spec.nonce), tagLength: 128}, aesKey, b64decode(spec.data));
-    return await window.crypto.subtle.importKey("pkcs8", privateBytes, {name: keyType, namedCurve: "P-384"}, false, usage);
+async function decryptKey(mod, info, pwKey) {
+    var keyBits = await window.crypto.subtle.deriveBits({name: "PBKDF2", salt: b64decode(info.key_spec.salt), iterations: info.key_spec.iterations, hash: "SHA-256"}, pwKey, 256);
+    var aesKey = await window.crypto.subtle.importKey("raw", keyBits, "AES-GCM", false, ["decrypt"]);
+    var privateBytes = await window.crypto.subtle.decrypt({name: "AES-GCM", iv: b64decode(info.nonce), tagLength: 128}, aesKey, b64decode(info.data));
+    return mod.keyPair.fromSecretKey(new Uint8Array(privateBytes)).secretKey;
+}
+
+async function createChannelKey(name, password, serverKey) {
+    var pwBytes = new TextEncoder('UTF-8').encode(password);
+    var nameBytes = new TextEncoder('UTF-8').encode(name);
+    var key = await window.crypto.subtle.importKey("raw", pwBytes, {name: "HKDF"}, false, ["deriveBits"]);
+    var keyBits = await window.crypto.subtle.deriveBits({name: "HKDF", hash: "SHA-256", salt: serverKey, info: nameBytes}, key, 256);
+    var keyHash = await window.crypto.subtle.digest("SHA-256", keyBits);
+    var channelKey = await window.crypto.subtle.importKey("raw", keyBits, "AES-GCM", false, ["encrypt", "decrypt"]);
+    return {
+        key: channelKey,
+        hash: keyHash
+    };
 }
 
 Vue.component('chat-line', {
@@ -31,9 +44,12 @@ Vue.component('chat-line', {
 
 var vm = new Vue({
     el: '#app',
+    vuetify: new Vuetify({
+    }),
     data: {
         showNav: true,
         serverName: 'Neolith',
+        serverKey: null,
         authenticated: false,
         showChannel: null,
         nickname: 'unnamed',
@@ -44,13 +60,24 @@ var vm = new Vue({
         chat: '',
         channels: [],
         channelUsers: {},
+        channelKeys: {},
         users: [],
         buffer: {},
         showError: false,
         lastError: '',
-        ecdh: null,
-        ecdsa: null,
-        ready: true
+        x25519: null,
+        ed25519: null,
+        ready: true,
+        newChannel: {
+            name: '',
+            encrypted: false,
+            private: false,
+            key: ''
+        },
+        showNewChannel: false
+    },
+    created: function() {
+        this.$vuetify.theme.dark = true;
     },
     computed: {
         currentChannel: function() {
@@ -94,13 +121,12 @@ var vm = new Vue({
                         }
                     });
                 };
+                socket.onclose = function(event) {
+                    self.cleanup();
+                };
             });
         },
-        logout: function() {
-            this.write({
-                'logout': {}
-            });
-            socket.close(1000);
+        cleanup: function() {
             socket = null;
             this.authenticated = false;
             this.showChannel = null;
@@ -108,6 +134,14 @@ var vm = new Vue({
             this.users = [];
             this.buffer = {};
             this.channelUsers = {};
+            this.showNewChannel = false;
+        },
+        logout: function() {
+            this.write({
+                'logout': {}
+            });
+            socket.close(1000);
+            this.cleanup();
         },
         write: function(tx) {
             console.log('SEND', tx);
@@ -150,8 +184,9 @@ var vm = new Vue({
                     break;
                 case 'login.response':
                     this.sessionId = data.session_id;
-                    this.ecdh = await decryptKey("ECDH", data.ecdh, this.passwordKey, ["deriveBits"]);
-                    this.ecdsa = await decryptKey("ECDSA", data.ecdsa, this.passwordKey, ["sign"]);
+                    this.serverKey = b64decode(data.server_key);
+                    this.x25519 = await decryptKey(nacl.box, data.x25519, this.passwordKey);
+                    this.ed25519 = await decryptKey(nacl.sign, data.ed25519, this.passwordKey);
                     this.authenticated = true;
                     this.write({
                         'user.list': {},
@@ -171,6 +206,9 @@ var vm = new Vue({
                     var uid = data.user.ident;
                     var idx = this.users.findIndex(function(u) { return u.ident == uid; });
                     this.users.splice(idx, 1);
+                    break;
+                case 'channel.created':
+                    this.channels.push(data.channel);
                     break;
                 case 'channel.joined':
                     var user = this.getUser(data.user.ident);
@@ -199,10 +237,16 @@ var vm = new Vue({
                             this.$set(this.buffer, channel.name, []);
                         }
                         if (channel.encrypted && data.encrypted) {
-                            window.crypto.subtle.decrypt(algorithm, this.privateKey, b64decode(data.encrypted)).then(function(plaintext) {
-                                var chat = new TextDecoder('UTF-8').decode(plaintext);
-                                self.addChat(channel, chat, user, data.emote);
-                            });
+                            var channelKey = this.channelKeys[channel.name].key;
+                            var text = await window.crypto.subtle.decrypt({name: "AES-GCM", iv: b64decode(data.encrypted.nonce), tagLength: 128}, channelKey, b64decode(data.encrypted.data));
+                            if (nacl.sign.detached.verify(new Uint8Array(text), b64decode(data.encrypted.signature), b64decode(data.user.ed25519))) {
+                                var chat = new TextDecoder('UTF-8').decode(text);
+                                this.addChat(channel, chat, user, data.emote);
+                            }
+                            else {
+                                // TODO: show unsigned chat inline with some kind of marking
+                                this.handleError('Could not verify message signature.');
+                            }
                         }
                         else {
                             this.addChat(channel, data.chat, user, data.emote);
@@ -224,39 +268,38 @@ var vm = new Vue({
             this.$vuetify.goTo(9999);
         },
         join: function(name) {
+            var keyHash = null;
+            if (name in this.channelKeys) {
+                keyHash = b64encode(this.channelKeys[name].hash);
+            }
+            // TODO: prompt for password if we don't already have it
             this.write({
                 'channel.join': {
-                    'channel': name
+                    'channel': name,
+                    'key_hash': keyHash
                 }
             });
         },
-        post: function() {
-            var self = this;
+        encryptChat: async function(chat, channelKey) {
+            var chatBytes = new TextEncoder('UTF-8').encode(chat);
+            var nonce = window.crypto.getRandomValues(new Uint8Array(12));
+            var data = await window.crypto.subtle.encrypt({name: "AES-GCM", iv: nonce, tagLength: 128}, channelKey, chatBytes);
+            var signature = nacl.sign.detached(chatBytes, this.ed25519);
+            return {
+                nonce: b64encode(nonce),
+                data: b64encode(data),
+                signature: b64encode(signature)
+            };
+        },
+        post: async function() {
             var channel = this.showChannel;
             if (this.currentChannel.encrypted) {
-                var data = new TextEncoder('UTF-8').encode(this.chat);
-                var promises = [];
-                this.channelUsers[channel].forEach(function(u) {
-                    if (u.public_key) {
-                        // TODO: cache imported public keys? message signing??
-                        promises.push(window.crypto.subtle.importKey("spki", b64decode(u.public_key), algorithm, true, ['encrypt']).then(function(publicKey) {
-                            return window.crypto.subtle.encrypt(algorithm, publicKey, data).then(function(buf) {
-                                return {
-                                    session_id: u.ident,
-                                    data: b64encode(buf)
-                                };
-                            });
-                        }));
+                this.write({
+                    'channel.post': {
+                        channel: channel,
+                        encrypted: await this.encryptChat(this.chat, this.channelKeys[channel].key),
+                        emote: false
                     }
-                });
-                Promise.all(promises).then(function(messages) {
-                    self.write({
-                        'channel.post': {
-                            channel: channel,
-                            encrypted: messages,
-                            emote: false
-                        }
-                    });
                 });
             }
             else {
@@ -269,6 +312,26 @@ var vm = new Vue({
                 });
             }
             this.chat = '';
+        },
+        createChannel: async function() {
+            var keyHash = null;
+            if (this.newChannel.encrypted) {
+                var info = await createChannelKey(this.newChannel.name, this.newChannel.key, this.serverKey);
+                // Would probably be better to do this after the channel is successfully created...
+                this.channelKeys[this.newChannel.name] = info;
+                keyHash = b64encode(info.hash);
+            }
+            this.write({
+                'channel.create': {
+                    'channel': {
+                        'name': this.newChannel.name,
+                        'encrypted': this.newChannel.encrypted,
+                        'private': this.newChannel.private
+                    },
+                    'key_hash': keyHash
+                }
+            });
+            this.showNewChannel = false;
         }
     }
 });

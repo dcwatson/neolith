@@ -1,4 +1,4 @@
-from .base import Binary, Boolean, Container, Integer, Sendable, String
+from .base import Binary, Boolean, Container, Integer, Object, Sendable, String
 
 
 class PasswordSpec (Container):
@@ -9,8 +9,7 @@ class PasswordSpec (Container):
 
 
 class KeyPair (Container):
-    salt = Binary(doc='Salt used in generating the PBKDF2 key for the AES-GCM encryption.')
-    iterations = Integer(doc='Number of iterations used in generating the PBKDF2 key for the AES-GCM encryption.')
+    key_spec = Object(PasswordSpec, doc='How to derive the AES-GCM decryption key from a password.')
     nonce = Binary(doc='Nonce used for the AES-GCM encryption of the key data.')
     data = Binary(doc='The AES-GCM encrypted private key data.')
     public_key = Binary(doc='The public key.')
@@ -21,8 +20,8 @@ class Session (Container):
     username = String(doc='The username of the session.')
     hostname = String(doc='The hostname for the session, may be fake.', default='unknown')
     nickname = String(doc='The nickname for the session, must be unique across all sessions.', default='unnamed')
-    public_ecdh = Binary(doc='Public ECDH key.')
-    public_ecdsa = Binary(doc='Public ECDSA key.')
+    x25519 = Binary(doc='Public x25519 key.')
+    ed25519 = Binary(doc='Public ed25519 key.')
 
     token = None
     authenticated = False
@@ -38,7 +37,7 @@ class Session (Container):
 class EncryptedMessage (Container):
     nonce = Binary(doc='Nonce used for the AES-GCM encryption of the message data.')
     data = Binary(doc='The AES-GCM encrypted message.', required=True)
-    signature = Binary(doc='Signature of the encrypted data.')
+    signature = Binary(doc='Signature of the message data (before encryption).')
 
 
 class Channel (Container):
