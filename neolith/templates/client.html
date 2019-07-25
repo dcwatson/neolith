@@ -100,6 +100,22 @@
                         </v-card-actions>
                     </v-card>
                 </v-dialog>
+                <v-dialog v-model="showJoin" max-width="400">
+                    <v-card>
+                        <v-card-title class="headline">Channel Password</v-card-title>
+                        <v-card-text>
+                            This channel ({% raw %}{{ joining }}{% endraw %}) is encrypted.
+                            <v-form>
+                                <v-text-field v-model="channelPassword" placeholder="Channel Password"></v-text-field>
+                            </v-form>
+                        </v-card-text>
+                        <v-card-actions>
+                            <v-spacer></v-spacer>
+                            <v-btn @click="showJoin = false">Cancel</v-btn>
+                            <v-btn @click="createKeyAndJoin">Join</v-btn>
+                        </v-card-actions>
+                    </v-card>
+                </v-dialog>
             </v-app>
         </div>
         <script src="https://cdn.jsdelivr.net/npm/tweetnacl/nacl-fast.min.js"></script>

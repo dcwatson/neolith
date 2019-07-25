@@ -74,7 +74,10 @@ var vm = new Vue({
             private: false,
             key: ''
         },
-        showNewChannel: false
+        showNewChannel: false,
+        joining: null,
+        showJoin: false,
+        channelPassword: ''
     },
     created: function() {
         this.$vuetify.theme.dark = true;
@@ -134,6 +137,7 @@ var vm = new Vue({
             this.users = [];
             this.buffer = {};
             this.channelUsers = {};
+            this.channelKeys = {};
             this.showNewChannel = false;
         },
         logout: function() {
@@ -165,6 +169,10 @@ var vm = new Vue({
             });
         },
         handleError: function(error) {
+            if (this.joining in this.channelKeys) {
+                delete this.channelKeys[this.joining];
+                this.joining = null;
+            }
             this.lastError = error;
             this.showError = true;
         },
@@ -215,6 +223,7 @@ var vm = new Vue({
                     if (user) {
                         this.channelUsers[data.channel].push(user);
                     }
+                    this.joining = null;
                     break;
                 case 'channel.left':
                     var uid = data.user.ident;
@@ -268,17 +277,35 @@ var vm = new Vue({
             this.$vuetify.goTo(9999);
         },
         join: function(name) {
-            var keyHash = null;
-            if (name in this.channelKeys) {
-                keyHash = b64encode(this.channelKeys[name].hash);
-            }
-            // TODO: prompt for password if we don't already have it
-            this.write({
-                'channel.join': {
-                    'channel': name,
-                    'key_hash': keyHash
+            var channel = this.getChannel(name);
+            if (channel.encrypted) {
+                var keyHash = null;
+                this.joining = name;
+                if (name in this.channelKeys) {
+                    this.write({
+                        'channel.join': {
+                            'channel': name,
+                            'key_hash': b64encode(this.channelKeys[name].hash)
+                        }
+                    });
                 }
-            });
+                else {
+                    this.showJoin = true;
+                }
+            }
+            else {
+                this.write({
+                    'channel.join': {
+                        'channel': name
+                    }
+                });
+            }
+        },
+        createKeyAndJoin: async function() {
+            this.channelKeys[this.joining] = await createChannelKey(this.joining, this.channelPassword, this.serverKey);
+            this.join(this.joining);
+            this.showJoin = false;
+            this.channelPassword = '';
         },
         encryptChat: async function(chat, channelKey) {
             var chatBytes = new TextEncoder('UTF-8').encode(chat);
