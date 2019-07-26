@@ -23,7 +23,7 @@ class DataType:
         if not instance:
             return self
         if self.name not in instance.__dict__:
-            value = self.default() if callable(self.default) else self.default
+            value = self.get_default()
             if self.readonly:
                 return value
             # Set the default value the first time it's accessed, so it's not changing on every access.
@@ -38,6 +38,9 @@ class DataType:
     def __set_name__(self, owner, name):
         self.name = name
 
+    def get_default(self):
+        return self.default() if callable(self.default) else self.default
+
     def check_value(self, instance, value):
         if value is None or isinstance(value, self.python_type):
             return value
@@ -45,10 +48,10 @@ class DataType:
             instance.__class__.__name__, self.name, self.python_type.__name__, value.__class__.__name__))
 
     def prepare(self, value):
-        return value
+        return self.get_default() if value is None else value
 
     def unpack(self, value):
-        return value
+        return self.get_default() if value is None else value
 
     def describe(self):
         default = self.default

@@ -2,24 +2,24 @@ from .base import Binary, Boolean, Container, Integer, Object, Sendable, String
 
 
 class PasswordSpec (Container):
-    algorithm = String(doc='Algorithm used to generate the password hash.', default='pbkdf2_sha256')
-    salt = Binary(doc='Salt used when generating the password hash.')
+    algorithm = String(doc='Algorithm used to generate the password hash.', default='pbkdf2_sha256', required=True)
+    salt = Binary(doc='Salt used when generating the password hash.', required=True)
     iterations = Integer(
         doc='Number of iterations used in the password hashing function (if applicable).', default=200000)
 
 
 class KeyPair (Container):
-    key_spec = Object(PasswordSpec, doc='How to derive the AES-GCM decryption key from a password.')
-    nonce = Binary(doc='Nonce used for the AES-GCM encryption of the key data.')
-    data = Binary(doc='The AES-GCM encrypted private key data.')
+    key_spec = Object(PasswordSpec, doc='How to derive the AES-GCM decryption key from a password.', required=True)
+    nonce = Binary(doc='Nonce used for the AES-GCM encryption of the key data.', required=True)
+    data = Binary(doc='The AES-GCM encrypted private key data.', required=True)
     public_key = Binary(doc='The public key.')
 
 
 class Session (Container):
-    ident = String(doc='Public session ID used to identify users on the server.')
-    username = String(doc='The username of the session.')
-    hostname = String(doc='The hostname for the session, may be fake.', default='unknown')
-    nickname = String(doc='The nickname for the session, must be unique across all sessions.', default='unnamed')
+    ident = String(doc='Public session ID used to identify users on the server.', required=True)
+    username = String(doc='The username of the session.', required=True)
+    hostname = String(doc='The hostname for the session, may be fake.', default='unknown', required=True)
+    nickname = String(doc='The nickname for the session, must be unique across all sessions.', default='unnamed', required=True)
     x25519 = Binary(doc='Public x25519 key.')
     ed25519 = Binary(doc='Public ed25519 key.')
 
@@ -41,7 +41,7 @@ class EncryptedMessage (Container):
 
 
 class Channel (Container):
-    name = String(doc='The unique name of this channel.')
+    name = String(doc='The unique name of this channel.', required=True)
     topic = String(doc='Topic of the channel')
     protected = Boolean(doc='Whether this channel can be removed or not.', default=False)
     private = Boolean(doc='Whether this channel is invitation-only or not.', default=False)
