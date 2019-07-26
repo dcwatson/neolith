@@ -4,7 +4,7 @@ from .types import KeyPair, PasswordSpec
 
 @packet('challenge', requires_auth=False)
 class LoginChallenge (Request):
-    username = String(doc='The username you are about to log in with.')
+    username = String(doc='The username you are about to log in with.', required=True)
 
     async def handle(self, server, session):
         # Account imports neolith.protocol.types
@@ -24,15 +24,16 @@ class LoginChallenge (Request):
 
 @packet('challenge.response')
 class ChallengeResponse (Response):
-    server_name = String(doc='Name of the server.')
+    server_name = String(doc='Name of the server.', required=True)
     token = String(doc='Private authentication token for your session, for use with the web API.')
-    password_spec = Object(PasswordSpec, doc='Information about how the password should be hashed on the client.')
+    password_spec = Object(
+        PasswordSpec, doc='Information about how the password should be hashed on the client.', required=True)
 
 
 @packet('login', requires_auth=False)
 class LoginRequest (Request):
-    password = Binary(doc='The hashed password (PBKDF2) for the associated username.')
-    nickname = String(required=True, doc='Nicknames must be unique on the server.')
+    password = Binary(doc='The hashed password for the associated username.', required=True)
+    nickname = String(doc='Nicknames must be unique on the server.', required=True)
 
     async def handle(self, server, session):
         if session.account is None or session.account.password != self.password:
@@ -51,8 +52,8 @@ class LoginRequest (Request):
 
 @packet('login.response')
 class LoginResponse (Response):
-    session_id = String(doc='Public session ID used to identify users on the server.')
-    server_key = Binary(doc='Random key for this server, used to salt channel keys.')
+    session_id = String(doc='Your public session ID (used to identify users on the server).', required=True)
+    server_key = Binary(doc='Random key for this server, used to salt channel keys.', required=True)
     x25519 = Object(KeyPair, doc='The x25519 keys for the account.')
     ed25519 = Object(KeyPair, doc='The ed25519 keys for the account.')
 

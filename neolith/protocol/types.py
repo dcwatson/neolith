@@ -35,7 +35,7 @@ class Session (Container):
 
 
 class EncryptedMessage (Container):
-    nonce = Binary(doc='Nonce used for the AES-GCM encryption of the message data.')
+    nonce = Binary(doc='Nonce used for the AES-GCM encryption of the message data.', required=True)
     data = Binary(doc='The AES-GCM encrypted message.', required=True)
     signature = Binary(doc='Signature of the message data (before encryption).')
 

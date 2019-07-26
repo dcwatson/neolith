@@ -46,7 +46,7 @@ class GetChannelUsers (Request):
 @packet('channel.create')
 class CreateChannel (Request):
     channel = Object(Channel, doc='The channel to create.', required=True)
-    key_hash = Binary(doc='SHA-256 hash of server key + channel name + channel key, if the channel is encrypted.')
+    key_hash = Binary(doc='SHA-256 hash of the channel key, if the channel is encrypted.')
 
     async def handle(self, server, session):
         if self.channel.name in server.channels:
@@ -61,9 +61,10 @@ class CreateChannel (Request):
 
 
 @packet('channel.invite')
-class InviteUsers (Request):
-    channel = String(doc='The channel name to invite the specified users to.')
-    uids = List(str, doc='The list of user session IDs to invite.')
+class InviteUser (Request):
+    session_id = String(doc='The user to invite.', required=True)
+    channel = String(doc='The channel name to invite the specified user to.', required=True)
+    channel_key = Object(EncryptedMessage, doc='The channel key, encrypted by the sender for the invited user.')
     message = String(doc='A message to accompany the invitation.')
 
 
@@ -113,13 +114,13 @@ class ChatPosted (Notification):
     chat = String(doc='The posted chat, if the channel is not encrypted.')
     encrypted = Object(EncryptedMessage,
         doc='The encrypted (and optionally signed) message, if the channel is encrypted.')
-    emote = Boolean(doc='Whether the posted chat is an emote (action) or not.')
-    user = Object(Session, doc='The user who posted the chat.')
+    emote = Boolean(default=False, doc='Whether the posted chat is an emote (action) or not.')
+    user = Object(Session, doc='The user who posted the chat.', required=True)
 
 
 @packet('channel.listing')
 class ChannelList (Response):
-    channels = List(Channel, doc='A list of all channels visible to you.')
+    channels = List(Channel, doc='A list of all channels visible to you.', required=True)
 
 
 @packet('channel.userlist')
@@ -137,6 +138,7 @@ class ChannelCreated (Response):
 class ChannelInvitation (Notification):
     channel = Object(Channel, doc='The channel you are being invited to.', required=True)
     user = Object(Session, doc='The user inviting you to the channel.', required=True)
+    channel_key = Object(EncryptedMessage, doc='The channel key, encrypted by the sender for the invited user.')
     message = String(doc='The invitation message.')
 
 
