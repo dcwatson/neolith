@@ -20,3 +20,7 @@ AUTO_JOIN = config('AUTO_JOIN', cast=bool, default=False)
 ENABLE_WEB_CLIENT = config('ENABLE_WEB_CLIENT', cast=bool, default=True)
 ENABLE_DOCS = config('ENABLE_DOCS', cast=bool, default=True)
 ENABLE_SIGNUP = config('ENABLE_SIGNUP', cast=bool, default=True)
+
+ENABLE_IRC = config('ENABLE_IRC', cast=bool, default=True)
+IRC_BIND = config('IRC_BIND', default='0.0.0.0')
+IRC_PORT = config('IRC_PORT', cast=int, default=6667)

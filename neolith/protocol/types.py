@@ -1,11 +1,17 @@
 from .base import Binary, Boolean, Container, Integer, Object, Sendable, String
 
+import hashlib
+
 
 class PasswordSpec (Container):
     algorithm = String(doc='Algorithm used to generate the password hash.', default='pbkdf2_sha256', required=True)
     salt = Binary(doc='Salt used when generating the password hash.', required=True)
     iterations = Integer(
         doc='Number of iterations used in the password hashing function (if applicable).', default=200000)
+
+    def generate(self, password):
+        assert self.algorithm == 'pbkdf2_sha256'
+        return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), self.salt, self.iterations)
 
 
 class KeyPair (Container):
@@ -19,7 +25,7 @@ class Session (Container):
     ident = String(doc='Public session ID used to identify users on the server.', required=True)
     username = String(doc='The username of the session.', required=True)
     hostname = String(doc='The hostname for the session, may be fake.', default='unknown', required=True)
-    nickname = String(doc='The nickname for the session, must be unique across all sessions.', default='unnamed', required=True)
+    nickname = String(doc='The nickname for the session, must be unique across all sessions.', required=True)
     x25519 = Binary(doc='Public x25519 key.')
     ed25519 = Binary(doc='Public ed25519 key.')
 
@@ -54,6 +60,10 @@ class Channel (Container):
         super().__init__(**kwargs)
         self.sessions = set()
         self.invitations = set()
+
+    @property
+    def irc_name(self):
+        return '#{}'.format(self.name)
 
     def invite(self, session):
         self.invitations.add(session.ident)

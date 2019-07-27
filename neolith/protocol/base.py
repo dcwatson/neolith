@@ -211,14 +211,17 @@ class Packet (Container, Sendable):
         global registered_packets
         return registered_packets.get(ident)
 
+    def __iter__(self):
+        yield self
+
 
 class Transaction (Sendable):
     txid = None
     error = None
 
-    def __init__(self, data=None, txid=None):
+    def __init__(self, data=None, txid=None, packets=None):
         self.txid = txid
-        self.packets = []
+        self.packets = packets or []
         if isinstance(data, dict):
             for ident, payload in data.items():
                 if ident == 'txid':

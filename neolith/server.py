@@ -6,6 +6,7 @@ import dorm
 import uvicorn
 
 from neolith import settings
+from neolith.irc import IRCSession
 from neolith.models import Account
 from neolith.protocol import (
     Channel, ChannelJoin, ChannelLeave, ClientPacket, ProtocolError, Sendable, Session, Transaction, UserJoined,
@@ -44,6 +45,7 @@ class NeolithServer:
     def __init__(self):
         self.loop = None
         self.server = None
+        self.irc = None
         self.sessions = {}
         self.channels = Channels()
         self.secret_key = os.urandom(32)
@@ -72,10 +74,15 @@ class NeolithServer:
         self.loop = asyncio.get_event_loop()
         self.server = await self.loop.create_server(lambda: SocketSession(self), settings.SOCKET_BIND,
             settings.SOCKET_PORT)
+        if settings.ENABLE_IRC:
+            print('Starting IRC server on {}:{}'.format(settings.IRC_BIND, settings.IRC_PORT))
+            self.irc = await self.loop.create_server(lambda: IRCSession(self), settings.IRC_BIND, settings.IRC_PORT)
 
     async def shutdown(self):
         print('Stopping binary protocol server')
         self.server.close()
+        if self.irc:
+            self.irc.close()
 
     async def web_handler(self, request):
         session_token = request.headers.get('x-neolith-session')
