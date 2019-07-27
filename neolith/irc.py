@@ -1,7 +1,7 @@
 from neolith import settings
 from neolith.protocol import PostChat, ProtocolError, Sendable, Session, Transaction
 
-from .constants import RPL
+from .constants import ERR, RPL
 
 import asyncio
 import logging
@@ -54,6 +54,7 @@ class IRCSession (asyncio.Protocol, Session):
             if handler:
                 asyncio.ensure_future(handler(*params, prefix=prefix))
             else:
+                self.write(ERR.UNKNOWNCOMMAND, self.nickname or '*', cmd, 'Unknown command')
                 logging.debug('Unknown IRC command "%s" with params: %s', cmd, params)
 
     def write(self, code, *params, prefix=None):
@@ -69,7 +70,8 @@ class IRCSession (asyncio.Protocol, Session):
     async def rewrite(self, packet):
         if packet.ident == 'channel.posted' and packet.chat:
             channel = self.server.channels[packet.channel]
-            self.write('PRIVMSG', channel.irc_name, packet.chat, prefix=packet.user)
+            if packet.user.ident != self.ident:
+                self.write('PRIVMSG', channel.irc_name, packet.chat, prefix=packet.user)
         elif packet.ident == 'channel.joined':
             channel = self.server.channels[packet.channel]
             self.write('JOIN', channel.irc_name, prefix=packet.user)
@@ -80,6 +82,9 @@ class IRCSession (asyncio.Protocol, Session):
     async def check_login(self):
         if self.authenticated:
             return
+        if self.username and self.nickname and not self.password:
+            self.write('NOTICE', 'AUTH', '*** You are not logged in, please specify a PASS')
+            return
         from neolith.models import Account
         if self.username and self.password and self.nickname:
             self.account = await Account.query(username=self.username).get()
@@ -87,7 +92,8 @@ class IRCSession (asyncio.Protocol, Session):
                 raise ProtocolError('Login failed.')
             await self.server.authenticate(self)
             self.write(RPL.WELCOME, self.nickname,
-                       'The public chat room for this server is #{}'.format(settings.PUBLIC_CHANNEL))
+                       'Welcome to {}! The public chat room for this server is #{}'.format(
+                           settings.SERVER_NAME, settings.PUBLIC_CHANNEL))
 
     async def handle_PING(self, *params, prefix=None):
         self.write('PONG', settings.SERVER_NAME, ' '.join(params))
@@ -102,9 +108,11 @@ class IRCSession (asyncio.Protocol, Session):
         await self.check_login()
 
     async def handle_NICK(self, *params, prefix=None):
-        # TODO: check nickname
-        self.nickname = params[0]
-        await self.check_login()
+        if self.server.get(nickname=params[0], authenticated=True):
+            self.write(ERR.NICKNAMEINUSE, '*', 'Nickname is already in use.')
+        else:
+            self.nickname = params[0]
+            await self.check_login()
 
     async def handle_JOIN(self, *params, prefix=None):
         channel = self.server.channels[params[0][1:]]
