@@ -11,7 +11,9 @@ class PasswordSpec (Container):
 
     def generate(self, password):
         assert self.algorithm == 'pbkdf2_sha256'
-        return hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), self.salt, self.iterations)
+        if isinstance(password, str):
+            password = password.encode('utf-8')
+        return hashlib.pbkdf2_hmac('sha256', password, self.salt, self.iterations)
 
 
 class KeyPair (Container):

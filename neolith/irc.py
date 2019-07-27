@@ -4,6 +4,7 @@ from neolith.protocol import PostChat, ProtocolError, Sendable, Session, Transac
 from .constants import ERR, RPL
 
 import asyncio
+import base64
 import logging
 
 
@@ -80,17 +81,21 @@ class IRCSession (asyncio.Protocol, Session):
             channel = self.server.channels[packet.channel]
             self.write('PART', channel.irc_name, prefix=packet.user)
 
-    async def check_login(self):
+    async def check_login(self, sasl=False):
         if self.authenticated:
             return
         if self.username and self.nickname and not self.password:
-            self.write('NOTICE', 'AUTH', '*** You are not logged in, please specify a PASS')
+            self.write('NOTICE', 'AUTH', '*** You are not logged in, please use PASS or AUTHENTICATE')
             return
         from neolith.models import Account
         if self.username and self.password and self.nickname:
             self.account = await Account.query(username=self.username).get()
             if self.account is None or self.account.password != self.account.password_spec.generate(self.password):
                 raise ProtocolError('Login failed.')
+            if sasl:
+                self.write(RPL.LOGGEDIN, self.nickname, str(self), self.username,
+                           'You are logged in as {}'.format(self.username))
+                self.write(RPL.SASLSUCCESS, self.nickname, 'SASL authentication successful')
             await self.server.authenticate(self)
             self.write(RPL.WELCOME, self.nickname,
                        'Welcome to {}! The public chat room for this server is #{}'.format(
@@ -98,6 +103,23 @@ class IRCSession (asyncio.Protocol, Session):
 
     async def handle_PING(self, *params, prefix=None):
         self.write('PONG', settings.SERVER_NAME, ' '.join(params))
+
+    async def handle_CAP(self, *params, prefix=None):
+        if params[0].upper() == 'LS':
+            self.write('CAP', self.nickname or '*', 'LS', ':sasl')
+        elif params[0].upper() == 'REQ':
+            reqs = params[1].split()
+            if 'sasl' in reqs:
+                self.write('CAP', self.nickname or '*', 'ACK', ':sasl')
+
+    async def handle_AUTHENTICATE(self, *params, prefix=None):
+        if params[0] == 'PLAIN':
+            self.write('AUTHENTICATE', '+')
+        else:
+            ident, auth, password = base64.b64decode(params[0]).split(b'\x00')
+            self.username = ident.decode('utf-8')
+            self.password = password.decode('utf-8')
+            await self.check_login(sasl=True)
 
     async def handle_PASS(self, *params, prefix=None):
         self.password = params[0]
@@ -109,7 +131,7 @@ class IRCSession (asyncio.Protocol, Session):
         await self.check_login()
 
     async def handle_NICK(self, *params, prefix=None):
-        if params[0] == self.nickname:
+        if not params or params[0] == self.nickname:
             return
         if self.server.get(nickname=params[0], authenticated=True):
             self.write(ERR.NICKNAMEINUSE, '*', 'Nickname is already in use.')

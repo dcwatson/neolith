@@ -89,6 +89,11 @@ class RPL (enum.Enum):
     ADMINLOC2 = 258
     ADMINEMAIL = 259
     TRYAGAIN = 263
+    # https://ircv3.net/specs/extensions/sasl-3.1.html
+    LOGGEDIN = 900
+    LOGGEDOUT = 901
+    SASLSUCCESS = 903
+    SASLMECHS = 908
 
     def __str__(self):
         return '{:03d}'.format(self.value)
@@ -148,6 +153,12 @@ class ERR (enum.Enum):
     NOOPERHOST = 491
     UMODEUNKNOWNFLAG = 501
     USERSDONTMATCH = 502
+    # https://ircv3.net/specs/extensions/sasl-3.1.html
+    NICKLOCKED = 902
+    SASLFAIL = 904
+    SASLTOOLONG = 905
+    SASLABORTED = 906
+    SASLALREADY = 907
 
     def __str__(self):
         return '{:03d}'.format(self.value)
