@@ -52,6 +52,7 @@ class IRCSession (asyncio.Protocol, Session):
                 params.extend(parts[2:])
             handler = getattr(self, 'handle_{}'.format(cmd.upper()), None)
             if handler:
+                # TODO: check authentication for non-login-related commands (PASS, USER, NICK, CAP, etc)
                 asyncio.ensure_future(handler(*params, prefix=prefix))
             else:
                 self.write(ERR.UNKNOWNCOMMAND, self.nickname or '*', cmd, 'Unknown command')
@@ -108,11 +109,17 @@ class IRCSession (asyncio.Protocol, Session):
         await self.check_login()
 
     async def handle_NICK(self, *params, prefix=None):
+        if params[0] == self.nickname:
+            return
         if self.server.get(nickname=params[0], authenticated=True):
             self.write(ERR.NICKNAMEINUSE, '*', 'Nickname is already in use.')
         else:
             self.nickname = params[0]
-            await self.check_login()
+            if self.authenticated:
+                # TODO: send user.modified
+                pass
+            else:
+                await self.check_login()
 
     async def handle_JOIN(self, *params, prefix=None):
         channel = self.server.channels[params[0][1:]]
