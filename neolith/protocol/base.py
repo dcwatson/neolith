@@ -152,6 +152,19 @@ class Container:
         for field, value in kwargs.items():
             setattr(self, field, value)
 
+    def __str__(self):
+        fields = []
+        seen = set()
+        for klass in self.__class__.mro():
+            for name, field in vars(klass).items():
+                if isinstance(field, DataType) and name not in seen:
+                    value = getattr(self, name)
+                    if isinstance(value, bytes):
+                        value = '[{} bytes]'.format(len(value))
+                    fields.append('{}={}'.format(name, value))
+                    seen.add(name)
+        return '<{} {}>'.format(self.__class__.__name__, ', '.join(fields))
+
     def prepare(self):
         data = {}
         for klass in self.__class__.mro():
@@ -186,11 +199,15 @@ class Container:
 
     @classmethod
     def to_sql(cls, value):
+        if value is None:
+            return None
         assert isinstance(value, cls)
         return json.dumps(value.prepare())
 
     @classmethod
     def to_python(cls, value):
+        if value is None:
+            return None
         return cls.unpack(json.loads(value))
 
 
@@ -246,6 +263,12 @@ class Transaction (Sendable):
     def add(self, packet):
         if packet:
             self.packets.append(packet)
+
+    def first(self, ident):
+        for packet in self.packets:
+            if packet.ident == ident:
+                return packet
+        return None
 
     def to_dict(self):
         data = {}

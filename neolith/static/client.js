@@ -1,5 +1,10 @@
 var socket = null;
 
+var utf8 = new TextEncoder('UTF-8');
+var CLIENT_KEY = utf8.encode('Client Key');
+var SERVER_KEY = utf8.encode('Server Key');
+
+
 function b64encode(buf) {
     return btoa(String.fromCharCode.apply(null, new Uint8Array(buf)));
 }
@@ -9,6 +14,20 @@ function b64decode(s) {
     var bs = atob(s), buf = new Uint8Array(bs.length);
     Array.prototype.forEach.call(buf, function (el, idx, arr) { arr[idx] = bs.charCodeAt(idx); });
     return buf;
+}
+
+async function hmac_sha256(key, data) {
+    var hmacKey = await crypto.subtle.importKey("raw", key, {name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
+    var hmac = await crypto.subtle.sign("HMAC", hmacKey, data);
+    return new Uint8Array(hmac);
+}
+
+function xor(b1, b2) {
+    var result = new Uint8Array(b1.length);
+    for(var i = 0; i < b1.length; i++) {
+        result[i] = b1[i] ^ b2[i];
+    }
+    return result;
 }
 
 async function decryptKey(mod, info, pwKey) {
@@ -56,6 +75,8 @@ var vm = new Vue({
         username: 'guest',
         password: '',
         passwordKey: null,
+        clientNonce: null,
+        serverSignature: null,
         sessionId: null,
         chat: '',
         channels: [],
@@ -113,6 +134,7 @@ var vm = new Vue({
             window.crypto.subtle.importKey("raw", pwData, {name: "PBKDF2"}, false, ["deriveBits"]).then(function(pwKey) {
                 self.passwordKey = pwKey;
                 self.password = '';
+                self.clientNonce = window.crypto.getRandomValues(new Uint8Array(16));
                 socket = new WebSocket(window.location.protocol.replace('http', 'ws') + '//' + window.location.host + '/ws');
                 socket.onmessage = function(event) {
                     self.handle(JSON.parse(event.data));
@@ -120,7 +142,8 @@ var vm = new Vue({
                 socket.onopen = function(event) {
                     self.write({
                         'challenge': {
-                            'username': self.username
+                            'username': self.username,
+                            'nonce': b64encode(self.clientNonce)
                         }
                     });
                 };
@@ -139,6 +162,10 @@ var vm = new Vue({
             this.channelUsers = {};
             this.channelKeys = {};
             this.showNewChannel = false;
+            this.clientNonce = null;
+            this.serverSignature = null;
+            this.x25519 = null;
+            this.ed25519 = null;
         },
         logout: function() {
             this.write({
@@ -180,26 +207,41 @@ var vm = new Vue({
             var self = this;
             switch(ident) {
                 case 'challenge.response':
+                    // TODO: check that data.nonce starts with the this.clientNonce we sent
                     this.serverName = data.server_name;
                     // TODO: check password_spec.algorithm; assuming pbkdf2_sha256 for now.
-                    var pwHash = await window.crypto.subtle.deriveBits({name: "PBKDF2", salt: b64decode(data.password_spec.salt), iterations: data.password_spec.iterations, hash: "SHA-256"}, this.passwordKey, 256);
+                    var saltedPassword = await window.crypto.subtle.deriveBits({name: "PBKDF2", salt: b64decode(data.password_spec.salt), iterations: data.password_spec.iterations, hash: "SHA-256"}, this.passwordKey, 256);
+                    var clientKey = await hmac_sha256(saltedPassword, CLIENT_KEY);
+                    var serverKey = await hmac_sha256(saltedPassword, SERVER_KEY);
+                    var storedKey = await window.crypto.subtle.digest("SHA-256", clientKey);
+                    var clientSignature = await hmac_sha256(storedKey, b64decode(data.nonce));
+                    var clientProof = xor(clientKey, clientSignature);
+                    // We'll use this during login.response to verify the server
+                    this.serverSignature = b64encode(await hmac_sha256(serverKey, b64decode(data.nonce)));
                     this.write({
                         'login': {
-                            'password': b64encode(pwHash),
+                            'nonce': data.nonce,
+                            'proof': b64encode(clientProof),
                             'nickname': self.nickname
                         }
                     });
                     break;
                 case 'login.response':
-                    this.sessionId = data.session_id;
-                    this.serverKey = b64decode(data.server_key);
-                    this.x25519 = await decryptKey(nacl.box, data.x25519, this.passwordKey);
-                    this.ed25519 = await decryptKey(nacl.sign, data.ed25519, this.passwordKey);
-                    this.authenticated = true;
-                    this.write({
-                        'user.list': {},
-                        'channel.list': {}
-                    });
+                    if (data.proof == this.serverSignature) {
+                        this.sessionId = data.session_id;
+                        this.serverKey = b64decode(data.server_key);
+                        this.x25519 = await decryptKey(nacl.box, data.x25519, this.passwordKey);
+                        this.ed25519 = await decryptKey(nacl.sign, data.ed25519, this.passwordKey);
+                        this.authenticated = true;
+                        this.write({
+                            'user.list': {},
+                            'channel.list': {}
+                        });
+                    }
+                    else {
+                        this.logout();
+                        this.handleError('Server authentication failed.');
+                    }
                     break;
                 case 'user.listing':
                     this.users = data.users;

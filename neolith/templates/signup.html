@@ -84,10 +84,15 @@
                 var pwKey = await window.crypto.subtle.importKey("raw", pwBytes, {name: "PBKDF2"}, false, ["deriveBits"]);
                 // Generate a PBKDF2 digest of the password. This will be what the server stores, and what clients send at login.
                 var pwHash = await window.crypto.subtle.deriveBits({name: "PBKDF2", salt: passwordSalt, iterations: iterations, hash: "SHA-256"}, pwKey, 256);
+                var hmacKey = await crypto.subtle.importKey("raw", pwHash, {name: "HMAC", hash: "SHA-256"}, false, ["sign"]);
+                var clientKey = await crypto.subtle.sign("HMAC", hmacKey, new TextEncoder('UTF-8').encode('Client Key'));
+                var serverKey = await crypto.subtle.sign("HMAC", hmacKey, new TextEncoder('UTF-8').encode('Server Key'));
+                var storedKey = await crypto.subtle.digest("SHA-256", clientKey);
                 return {
                     username: username.toLowerCase(),
                     email: email.toLowerCase(),
-                    password: b64encode(pwHash),
+                    stored_key: b64encode(storedKey),
+                    server_key: b64encode(serverKey),
                     password_spec: {
                         algorithm: "pbkdf2_sha256",
                         salt: b64encode(passwordSalt),

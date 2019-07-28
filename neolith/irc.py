@@ -90,7 +90,7 @@ class IRCSession (asyncio.Protocol, Session):
         from neolith.models import Account
         if self.username and self.password and self.nickname:
             self.account = await Account.query(username=self.username).get()
-            if self.account is None or self.account.password != self.account.password_spec.generate(self.password):
+            if self.account is None or not self.account.check_password(self.password):
                 raise ProtocolError('Login failed.')
             if sasl:
                 self.write(RPL.LOGGEDIN, self.nickname, str(self), self.username,

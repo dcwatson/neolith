@@ -22,7 +22,7 @@
                         <li><code>error</code> - for responses to failed requests, this will contain an error message string.</li>
                         <li><code>packet.type</code> - one of the packet types below. The Neolith server will always send back a list of packet payloads for each of these keys, but will accept a single dictionary if a client wishes to send just a single packet of that type. A transaction can contain multiple packet types, and multiple packets of each type.</li>
                     </ul>
-                    <h2>Sample</h2>
+                    <h2>Sample <kbd>FIXME</kbd></h2>
                     <p>
                         <dl>
                             <dt>Client</dt>
@@ -42,6 +42,13 @@
                             <dd><code>{"txid": 3, "user.listing": [{"users": [{"ident": "..."}]}], "channel.listing": [{"channels": [{"name": "public"}]}]}</code></dd>
                         </dl>
                     </p>
+
+                    <h1 id="authentication">Authentication</h1>
+                    <p>Neolith authentication is essentially <a href="https://en.wikipedia.org/wiki/Salted_Challenge_Response_Authentication_Mechanism">SCRAM</a> with two important differences:</p>
+                    <ol>
+                        <li>The <code>AuthMessage</code> is simply the concatenated client and server nonces, instead of the joined message texts. Due to the nature of JSON keys being (potentially) unordered, and the ability of Neolith to accept a JSON object or list for packet types, the message "text" of the challenge/login exchanges is not well-defined.</li>
+                        <li>It uses (and only accepts) SHA-256 instead of the RFC-mandated SHA-1.</li>
+                    </ol>
 
                     <h1 id="encryption">Encryption</h1>
                     <p>End-to-end encryption, where the server has no way of knowing the content of your messages (and no access to keys/passwords that may give it access), is a core feature of the Neolith protocol. The algorithms and methods used are documented here as a reference for client implentations, as well as for security auditing purposes.</p>
