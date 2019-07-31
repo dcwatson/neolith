@@ -106,6 +106,46 @@ class Object (DataType):
         return self.python_type.unpack(value) if value is not None else None
 
 
+class Dictionary (DataType):
+    python_type = dict
+
+    def __init__(self, item_type, **kwargs):
+        self.item_type = item_type
+        if 'default' not in kwargs:
+            kwargs['default'] = dict
+        super().__init__(**kwargs)
+
+    def check_value(self, instance, value):
+        if isinstance(value, self.python_type):
+            for item in value.values():
+                if not isinstance(item, self.item_type):
+                    raise AttributeError('Values of {}.{} must be of type {}'.format(
+                        instance.__class__.__name__, self.name, self.item_type.__name__))
+        return super().check_value(instance, value)
+
+    def prepare(self, value):
+        prepared = {}
+        if value is None:
+            return prepared
+        for key, item in value.items():
+            if isinstance(item, self.item_type):
+                prepared[key] = item.prepare() if isinstance(item, Container) else item
+        return prepared
+
+    def unpack(self, value):
+        if value is None:
+            return {}
+        if issubclass(self.item_type, Container):
+            return {key: self.item_type.unpack(item) for key, item in value.items()}
+        else:
+            return {key: self.item_type(item) for key, item in value.items()}
+
+    def describe(self):
+        description = super().describe()
+        description[self.name]['item_type'] = self.item_type.__name__
+        return description
+
+
 class List (DataType):
     python_type = list
 

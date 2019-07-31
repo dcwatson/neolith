@@ -1,5 +1,5 @@
 from neolith import settings
-from neolith.protocol import PostChat, ProtocolError, Sendable, Session, Transaction
+from neolith.protocol import Message, PostChat, ProtocolError, Sendable, Session, Transaction
 
 from .constants import ERR, RPL
 
@@ -80,6 +80,9 @@ class IRCSession (asyncio.Protocol, Session):
         elif packet.ident == 'channel.left':
             channel = self.server.channels[packet.channel]
             self.write('PART', channel.irc_name, prefix=packet.user)
+        elif packet.ident == 'message':
+            if not packet.encrypted:
+                self.write('PRIVMSG', str(self), packet.message, prefix=packet.sender.nickname)
 
     async def check_login(self, sasl=False):
         if self.authenticated:
@@ -166,6 +169,10 @@ class IRCSession (asyncio.Protocol, Session):
                 PostChat(channel=channel.name, chat=params[1], emote=False)
             ])
             await self.server.handle(self, tx)
+        else:
+            user = self.server.get(nickname=params[0])
+            if user:
+                await user.send(Message(sender=self, message=params[1]))
 
     async def handle_MODE(self, *params, prefix=None):
         pass
